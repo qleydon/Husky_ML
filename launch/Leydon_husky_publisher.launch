@@ -1,0 +1,5 @@
+<launch>
+  <arg name="stage" default="1"/>
+  <param name="stage_number"  value="$(arg stage)"/>
+  <node pkg="husky_ML" type="Husky_publisher" name = "Husky_publisher" output="screen" />
+</launch>

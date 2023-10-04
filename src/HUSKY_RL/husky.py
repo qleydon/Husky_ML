@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import rospy
 import numpy as np
 import math
@@ -18,7 +20,7 @@ class Env():
         self.initGoal = True
         self.get_goalbox = False
         self.position = Pose()
-        self.pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=5)
+        self.pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=10)
         self.sub_odom = rospy.Subscriber('odom', Odometry, self.getOdometry)
         self.reset_proxy = rospy.ServiceProxy('gazebo/reset_simulation', Empty)
         self.unpause_proxy = rospy.ServiceProxy('gazebo/unpause_physics', Empty)
