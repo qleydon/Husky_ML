@@ -1,3 +1,22 @@
+#!/usr/bin/env python
+#################################################################################
+# Copyright 2018 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#################################################################################
+
+# Authors: Gilbert #
+
 import rospy
 import os
 import json
@@ -9,121 +28,137 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from collections import deque
 from std_msgs.msg import Float32MultiArray
 from src.HUSKY_RL.husky import Env
-from keras.models import Sequential, load_model
-from keras.optimizers import RMSprop
-from keras.layers import Dense, Dropout, Activation
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 
 
-EPISODES = 3000
+EPISODES = 10000
+BATCH_SIZE = 64
+MIN_SIZE_BUFFER = 100
+BUFFER_CAPACITY = 100000 #100,000
 
-class ReinforceAgent():
-    def __init__(self, state_size, action_size):
-        self.pub_result = rospy.Publisher('result', Float32MultiArray, queue_size=5)
-        self.dirPath = os.path.dirname(os.path.realpath(__file__)) 
-        self.dirPath = self.dirPath.replace('Husky_ML/nodes', 'Husky_ML/save_model/stage_1_')
-        self.result = Float32MultiArray()
+LR = 0.00025 # 0.0001
+HIDDEN_SIZE = 128
 
-        self.load_model = False
-        self.load_episode = 0
-        self.state_size = state_size
+GAMMA = 0.99
+TAU = 0.1
+EPSILON_INITIAL = 0.6
+EPSILON_DECAY = 0.992
+EPSILON_MIN = 0.05
+
+MAX_GAMES = 400
+MAX_EPISODES = 250
+
+#PATH = '/home/quinn/dl_ws/src/turtlebot3_machine_learning/turtlebot3_dqn/save_model'
+#PATH_O = '/home/quinn/dl_ws/src/turtlebot3_machine_learning/turtlebot3_dqn/save_model/O_Leydon_S2_128_400.pth'
+#PATH_T = '/home/quinn/dl_ws/src/turtlebot3_machine_learning/turtlebot3_dqn/save_model/T_Leydon_S2_128_400.pth'
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+class ReplayBuffer:
+    def __init__(self, buffer_size = BUFFER_CAPACITY):
+        self.buffer_size = buffer_size
+        self.buffer = []
+
+    def add(self, experience):
+        self.buffer.append(experience)
+        if len(self.buffer) > self.buffer_size: #overflow
+            self.buffer.pop() # remove first 
+        
+    def sample(self, batch_size=BATCH_SIZE):
+        return random.sample(self.buffer, batch_size)
+    def get_size(self):
+        return len(self.buffer)
+
+class DQN(nn.Module):
+    def __init__(self, input_size, output_size, hidden_size=HIDDEN_SIZE):
+        super().__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, output_size)
+        self.relu = nn.ReLU()
+
+    def forward(self,x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        #x = self.relu(self.fc3(x))
+        x=self.fc3(x)
+        return x
+    
+class DoubleDQNAgent:
+    def __init__(self, state_size, action_size, gamma = GAMMA, epsilon_initial=1.0):
         self.action_size = action_size
-        self.episode_step = 6000
-        self.target_update = 2000
-        self.discount_factor = 0.99
-        self.learning_rate = 0.00025
-        self.epsilon = 1.0
-        self.epsilon_decay = 0.99
-        self.epsilon_min = 0.05
-        self.batch_size = 64
-        self.train_start = 64
-        self.memory = deque(maxlen=1000000)
+        self.state_size = state_size
+        self.epsilon = epsilon_initial
+        self.gamma = gamma
+        self.batch_size = BATCH_SIZE
+        self.buffer = ReplayBuffer()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.model = self.buildModel()
-        self.target_model = self.buildModel()
+        self.online_network = DQN(state_size, action_size).to(self.device)
+        self.target_network = DQN(state_size, action_size).to(self.device)
+        self.target_network.load_state_dict(self.online_network.state_dict()) # initializes target network to same weights as the online network
+        self.optimizer = optim.Adam(self.online_network.parameters(), lr = LR)
 
-        self.updateTargetModel()
 
-        if self.load_model:
-            self.model.set_weights(load_model(self.dirPath+str(self.load_episode)+".h5").get_weights())
+    def forward(self, state):
+        if self.epsilon > np.random.rand(): #explore
+            action = torch.zeros(self.action_size, dtype= torch.float32)
+            action[np.random.randint(self.action_size)] =1
+            action_t = torch.argmax(action).item()
+            return action_t
 
-            with open(self.dirPath+str(self.load_episode)+'.json') as outfile:
-                param = json.load(outfile)
-                self.epsilon = param.get('epsilon')
+        else: #exploit
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+            q_values = self.online_network(state)
+            action = torch.argmax(q_values).item()
+            return action # argmax returned as scalar
+        
+    def learn(self):
+        if self.buffer.get_size() < MIN_SIZE_BUFFER:
+            return
 
-    def buildModel(self):
-        model = Sequential()
-        dropout = 0.2
+        experiences = self.buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones = zip(*experiences)
+        states = torch.stack(states).float().to(self.device)
+        actions = torch.from_numpy(np.vstack(actions)).long().to(self.device)
+        rewards = torch.from_numpy(np.vstack(rewards)).float().to(self.device)
+        next_states = torch.stack(next_states).float().to(self.device)
+        dones = torch.from_numpy(np.vstack(dones).astype(np.uint8)).float().to(self.device)
 
-        model.add(Dense(64, input_shape=(self.state_size,), activation='relu', kernel_initializer='lecun_uniform'))
+        # Compute Q values and target Q values
+        q_values = self.online_network(states).gather(1, actions)
+        next_q_values = self.target_network(next_states).detach()
+        max_next_q_values = next_q_values.max(1)[0].unsqueeze(1)
+        target_q_values = rewards + self.gamma * max_next_q_values * (1 - dones)
 
-        model.add(Dense(64, activation='relu', kernel_initializer='lecun_uniform'))
-        model.add(Dropout(dropout))
+        # Compute the loss and backpropagate
+        loss = F.mse_loss(q_values, target_q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
-        model.add(Dense(self.action_size, kernel_initializer='lecun_uniform'))
-        model.add(Activation('linear'))
-        model.compile(loss='mse', optimizer=RMSprop(lr=self.learning_rate, rho=0.9, epsilon=1e-06))
-        model.summary()
+        # Update the target network
+        self.update_target_network()
 
-        return model
 
-    def getQvalue(self, reward, next_target, done):
-        if done:
-            return reward
-        else:
-            return reward + self.discount_factor * np.amax(next_target)
+    
+    def add_to_buffer(self, state, action, reward, next_state, done):
+        self.buffer.add((state, action, reward, next_state, done))
 
-    def updateTargetModel(self):
-        self.target_model.set_weights(self.model.get_weights())
+    def update_target_network(self):
+        for target_param, online_param in zip(self.target_network.parameters(), self.online_network.parameters()):
+            target_param.data.copy_(TAU * online_param.data + (1 - TAU) * target_param.data)
 
-    def getAction(self, state):
-        if np.random.rand() <= self.epsilon:
-            self.q_value = np.zeros(self.action_size)
-            return random.randrange(self.action_size)
-        else:
-            q_value = self.model.predict(state.reshape(1, len(state)))
-            self.q_value = q_value
-            return np.argmax(q_value[0])
-
-    def appendMemory(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-
-    def trainModel(self, target=False):
-        mini_batch = random.sample(self.memory, self.batch_size)
-        X_batch = np.empty((0, self.state_size), dtype=np.float64)
-        Y_batch = np.empty((0, self.action_size), dtype=np.float64)
-
-        for i in range(self.batch_size):
-            states = mini_batch[i][0]
-            actions = mini_batch[i][1]
-            rewards = mini_batch[i][2]
-            next_states = mini_batch[i][3]
-            dones = mini_batch[i][4]
-
-            q_value = self.model.predict(states.reshape(1, len(states)))
-            self.q_value = q_value
-
-            if target:
-                next_target = self.target_model.predict(next_states.reshape(1, len(next_states)))
-
-            else:
-                next_target = self.model.predict(next_states.reshape(1, len(next_states)))
-
-            next_q_value = self.getQvalue(rewards, next_target, dones)
-
-            X_batch = np.append(X_batch, np.array([states.copy()]), axis=0)
-            Y_sample = q_value.copy()
-
-            Y_sample[0][actions] = next_q_value
-            Y_batch = np.append(Y_batch, np.array([Y_sample[0]]), axis=0)
-
-            if dones:
-                X_batch = np.append(X_batch, np.array([next_states.copy()]), axis=0)
-                Y_batch = np.append(Y_batch, np.array([[rewards] * self.action_size]), axis=0)
-
-        self.model.fit(X_batch, Y_batch, batch_size=self.batch_size, epochs=1, verbose=0)
+    def update_epsilon(self):
+        self.epsilon = max(self.epsilon *EPSILON_DECAY, EPSILON_MIN)
 
 if __name__ == '__main__':
-    rospy.init_node('Husky_dqn')
+    print("starting up")
+    rospy.init_node('husky_dqn')
     pub_result = rospy.Publisher('result', Float32MultiArray, queue_size=5)
     pub_get_action = rospy.Publisher('get_action', Float32MultiArray, queue_size=5)
     result = Float32MultiArray()
@@ -133,62 +168,58 @@ if __name__ == '__main__':
     action_size = 5
 
     env = Env(action_size)
-
-    agent = ReinforceAgent(state_size, action_size)
     scores, episodes = [], []
+    scores_100 = []
     global_step = 0
     start_time = time.time()
+    
+    agent = DoubleDQNAgent(state_size, action_size)
 
-    for e in range(agent.load_episode + 1, EPISODES):
+    '''if os.path.exists(PATH_O):
+        agent.online_network.load_state_dict(torch.load(PATH_O))
+        print('loaded online weights')
+    if os.path.exists(PATH_T):
+        agent.target_network.load_state_dict(torch.load(PATH_T))
+        print('loaded target weights')'''
+
+    for game in range(MAX_GAMES): # take a total of EPISODES steps
         done = False
         state = env.reset()
+        state = torch.from_numpy(state).to(device)
         score = 0
-        for t in range(agent.episode_step):
-            action = agent.getAction(state)
 
+        for episode in range(MAX_EPISODES): # take 1000 actions
+            time.sleep(0.1)
+            action = agent.forward(state)
             next_state, reward, done = env.step(action)
-
-            agent.appendMemory(state, action, reward, next_state, done)
-
-            if len(agent.memory) >= agent.train_start:
-                if global_step <= agent.target_update:
-                    agent.trainModel()
-                else:
-                    agent.trainModel(True)
-
             score += reward
-            state = next_state
+            next_state = torch.from_numpy(next_state).to(device)
+            agent.add_to_buffer(state, action, reward, next_state, done)
+            agent.learn()
+            state = next_state.to(device)
+
             get_action.data = [action, score, reward]
             pub_get_action.publish(get_action)
 
-            if e % 10 == 0:
-                agent.model.save(agent.dirPath + str(e) + '.h5')
-                with open(agent.dirPath + str(e) + '.json', 'w') as outfile:
-                    json.dump(param_dictionary, outfile)
-
-            if t >= 500:
+            if episode == MAX_EPISODES-1:
                 rospy.loginfo("Time out!!")
                 done = True
 
             if done:
-                result.data = [score, np.max(agent.q_value)]
                 pub_result.publish(result)
-                agent.updateTargetModel()
                 scores.append(score)
-                episodes.append(e)
                 m, s = divmod(int(time.time() - start_time), 60)
                 h, m = divmod(m, 60)
 
-                rospy.loginfo('Ep: %d score: %.2f memory: %d epsilon: %.2f time: %d:%02d:%02d',
-                              e, score, len(agent.memory), agent.epsilon, h, m, s)
-                param_keys = ['epsilon']
-                param_values = [agent.epsilon]
-                param_dictionary = dict(zip(param_keys, param_values))
+                rospy.loginfo('Game: %d score: %.2f time: %d:%02d:%02d',
+                              game, score, h, m, s)
                 break
+        
+        scores.append(score)
+        agent.update_epsilon()
+        last_100_avg = np.mean(scores[-100:])
+        scores_100.append(last_100_avg)
 
-            global_step += 1
-            if global_step % agent.target_update == 0:
-                rospy.loginfo("UPDATE TARGET NETWORK")
-
-        if agent.epsilon > agent.epsilon_min:
-            agent.epsilon *= agent.epsilon_decay
+    #compleatly done
+    #torch.save(agent.online_network.state_dict(), PATH_O)
+    #torch.save(agent.target_network.state_dict(), PATH_T)
