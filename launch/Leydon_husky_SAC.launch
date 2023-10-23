@@ -1,0 +1,5 @@
+<launch>
+  <arg name="stage" default="1"/>
+  <param name="stage_number"  value="$(arg stage)"/>
+  <node pkg="husky_ML" type="Husky_SAC_node" name = "Husky_SAC_node" output="screen" />
+</launch>

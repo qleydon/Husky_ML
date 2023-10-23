@@ -61,8 +61,14 @@ include_directories(
 catkin_install_python(PROGRAMS
 nodes/Husky_dqn
 nodes/Husky_publisher
+nodes/Husky_SAC_node
 src/HUSKY_RL/husky.py
 src/HUSKY_RL/respawnGoal.py
+src/HUSKY_RL/Husky_ENV.py
+src/HUSKY_RL/Husky_Memory.py
+src/HUSKY_RL/Husky_Networks.py
+src/HUSKY_RL/Husky_RNDUtils.py
+src/HUSKY_RL/SAC_Husky.py
 DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
