@@ -15,16 +15,22 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 #from respawnGoal import Respawn
 from src.HUSKY_RL.respawnGoal import Respawn
 
+import cv2
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import numpy as np
+
+
 class Env():
     def __init__(self, action_size):
         self.goal_x = 0
         self.goal_y = 0
         self.heading = 0
         self.action_size = action_size
-        self.action_space = torch.zeros(action_size)
+        self.action_space = np.zeros(action_size)
         #self.observation_size = 480*640*3+2 #480x640 image * rgb + heading, distance
-        self.observation_size = 60*80*3+2
-        self.observation_space = torch.zeros(self.observation_size)
+        self.observation_size = 60*80*3
+        self.observation_space = np.zeros(self.observation_size)
         self.initGoal = True
         self.get_goalbox = False
         self.position = Pose()
@@ -90,23 +96,20 @@ class Env():
             min_scan_range[i] = np.min(scan_range[i:i+15])
 
         #image is 480x640, down sample by 8 to 60x80
-        img = img.data
-        print(img)
-        img  = np.array(img)
-        #print(img)
-        #print(img.)
-        img_torch = torch.from_numpy(img)
-        # Convert the uint8 tensor to a float tensor for interpolation
-        image_float = img_torch.to(img, dtype=torch.float32) / 255.0
 
-        # Downsample the image using nn.functional.interpolate
-        downsampled_image = F.interpolate(image_float, size=(60,80), mode='bilinear', align_corners=False)
+        bridge = CvBridge()
+        cv_image = bridge.imgmsg_to_cv2(img, desired_encoding="passthrough")
+        # Convert sensor_msgs/Image to an OpenCV image
 
-        # If needed, convert the downsampled image back to uint8
-        downsampled_image = (downsampled_image * 255.0).to(torch.uint8)
+        # Downsample the OpenCV image by a factor of 8
+        downsampled_image = cv2.resize(cv_image, None, fx=1/8, fy=1/8, interpolation=cv2.INTER_LINEAR)
+        downsampled_np = np.array(downsampled_image, dtype=float)
+        #print(downsampled_np)
+        #print(downsampled_np.size )
 
-        #self.observation_space = np.append(img.view(-1), [heading, current_distance])
-        self.observation_space = torch.cat(downsampled_image.view(-1), [heading, current_distance]) #1d tensor
+        #extra_values = np.array([heading, current_distance], dtype=float)
+
+        self.observation_space = downsampled_np
         return self.observation_space, done
 
     def setReward(self, state, done, action):
