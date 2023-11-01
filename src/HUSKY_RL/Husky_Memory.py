@@ -26,16 +26,20 @@ class ReplayBuffer:
     def get_transition_type_str(self, environment):
         
         
-        state_dim = environment.observation_size
+        state_dim = 26 #environment.observation_size
         state_dim_str = '' if state_dim == () else str(state_dim)
         state_type_str = 'float32' #str(environment.observation_space.dtype)
-        action_dim = environment.action_size
+        action_dim = 5# environment.action_size
         action_dim_str = '' if action_dim == () else str(action_dim)
-        action_type_str = 'float32' # str(environment.action_space.dtype)    
+        action_type_str = 'int64' # str(environment.action_space.dtype)    
 
         # type str for transition = 'state type, action type, reward type, state type'
         transition_type_str = '{0}{1}, {2}{3}, float32, {0}{1}, bool'.format(state_dim_str, state_type_str,
                                                                              action_dim_str, action_type_str)
+        
+        print("transition_type_str: ", transition_type_str)
+        #transition_type_str = '26float32, float32, int64, 5int64, bool'
+        #print("transition_type_str: ", transition_type_str)
         
         return transition_type_str
 

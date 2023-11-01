@@ -29,12 +29,13 @@ class SACAgent:
     DISCOUNT_RATE = 0.99
     LEARNING_RATE = 10 ** -4
     SOFT_UPDATE_INTERPOLATION_FACTOR = 0.01
+    net_type = "dense_net"
 
     def __init__(self,environment,rnd):
         self.rnd_state_flag=False
         self.rnd_state_only=False
         self.environment = environment
-        self.state_dim = self.environment.observation_size
+        self.state_dim = 26 #self.environment.observation_size
         self.action_dim = self.environment.action_size
         self.critic_local = CustomNetwork(None,True,self.state_dim,
                                           self.action_dim,"dense_net",None)
@@ -94,6 +95,9 @@ class SACAgent:
     
     def train_on_transition(self, state, discrete_action, next_state, reward, done):
         transition = (state, discrete_action, reward, next_state, done)
+
+        print("discrete action:", discrete_action)
+
         g_loss,l_loss,error=self.train_networks(transition)
         return g_loss,l_loss,error
     
@@ -104,6 +108,7 @@ class SACAgent:
         self.actor_optimiser.zero_grad()
         self.alpha_optimiser.zero_grad()
         # Calculate the loss for this transition.
+        
         self.replay_buffer.add_transition(transition)
         # Compute the gradients based on this loss, i.e. the gradients of the loss with respect to the Q-network
         # parameters.
@@ -176,6 +181,9 @@ class SACAgent:
             )).sum(dim=1)
 
             next_q_values = rewards_tensor + ~done_tensor * self.DISCOUNT_RATE*soft_state_values
+
+        print("action_tensor ", actions_tensor)
+        print("actions_tensor.dtype ", actions_tensor.dtype)
 
         soft_q_values = self.critic_local(states_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
         soft_q_values2 = self.critic_local2(states_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)

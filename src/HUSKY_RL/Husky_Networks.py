@@ -46,6 +46,19 @@ class CustomNetwork(nn.Module):
                 ('linear',100,ouput_dim,output_activation)
                 ]
             
+        elif net_type=='conv_net_husky':
+            layer_params = [
+                ('conv2d', input_dim,32,8,4,0, 'relu'),  
+                ('conv2d', 32,64,4,2,0, 'relu'),
+                ('conv2d', 64,64,3,1,0, 'relu'),
+                ('flatten',None,None),
+                ('linear',3136,500,'relu'),
+                ('linear',500,300,'relu'),
+                ('linear',300,100,'relu'),
+                ('linear',100,ouput_dim,output_activation)
+                ]
+
+            
         elif net_type=='dense_net':
             layer_params = [
                 ('linear',input_dim,400,'relu'),

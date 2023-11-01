@@ -26,11 +26,11 @@ class Env():
         self.goal_x = 0
         self.goal_y = 0
         self.heading = 0
-        self.action_size = action_size
+        self.action_size = 5# action_size
         self.action_space = np.zeros(action_size)
         #self.observation_size = 480*640*3+2 #480x640 image * rgb + heading, distance
-        self.observation_size = 60*80*3
-        self.observation_space = np.zeros(self.observation_size)
+        self.observation_size = 26 #((60, 80, 3), 1,1)
+        self.observation_space = np.random.random(26) #(np.zeros((60,80,3)), 0,10)
         self.initGoal = True
         self.get_goalbox = False
         self.position = Pose()
@@ -104,12 +104,9 @@ class Env():
         # Downsample the OpenCV image by a factor of 8
         downsampled_image = cv2.resize(cv_image, None, fx=1/8, fy=1/8, interpolation=cv2.INTER_LINEAR)
         downsampled_np = np.array(downsampled_image, dtype=float)
-        #print(downsampled_np)
-        #print(downsampled_np.size )
-
-        #extra_values = np.array([heading, current_distance], dtype=float)
-
-        self.observation_space = downsampled_np
+        
+        #self.observation_space = {downsampled_image, heading, current_distance}
+        self.observation_space = np.random.random(26)
         return self.observation_space, done
 
     def setReward(self, state, done, action):
@@ -117,8 +114,10 @@ class Env():
         current_distance = state[-1]
         heading = state[-2]
         heading_reward = - 0.1 
-        if type(action) is not int:
-            action = int(action[0]) # don't actually need this
+        '''if type(action) is not int:
+            #print(action)
+            #print(type(action))
+            action = int(action) # don't actually need this'''
 
         distance_rate = 2 ** (current_distance / self.goal_distance)
 
@@ -150,14 +149,17 @@ class Env():
         return reward
 
     def step(self, action):
-        #action = int(action[0]) # may get upset by this
         max_angular_vel = 1.5
         if action < 5:
             self.ang = ((5- 1)/2 - action) * max_angular_vel * 0.5
-            if type(action) is not int:
-                self.ang_decision = int(action[0])
+            '''if type(action) is not int:
+                print(action)
+                #print(type(action))
+                self.ang_decision = int(action) 
             else:
-                self.ang_decision = action
+                self.ang_decision = action'''
+            
+            self.ang_decision = action
         
         elif action < 10:
             self.vel = -(action - 5)*0.1 + 0.1 # range of 0.1 to 0.5

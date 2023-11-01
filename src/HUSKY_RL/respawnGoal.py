@@ -69,7 +69,7 @@ class Respawn():
     def getPosition(self, position_check=False, delete=False):
         if delete:
             self.deleteModel()
-
+        '''
         goal_x_list = [6, 19, 5, 2, 8, 1, -1.9, 5, 2, 5, 0, -1, 2]
         goal_y_list = [0, 5, -19, 15, -9, 10, 11, -15, 15, 18, -10, 16, -8]
         
@@ -91,6 +91,9 @@ class Respawn():
             self.goal_position.position.x = goal_x_list[self.index]
             self.goal_position.position.y = goal_y_list[self.index]
 
+        '''
+        self.goal_position.position.x = 20.78
+        self.goal_position.position.y = -1.65
 
 
         time.sleep(0.5)
