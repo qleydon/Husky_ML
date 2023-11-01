@@ -10,8 +10,8 @@ import os
 
 class ReplayBuffer:
 
-    def __init__(self, environment, capacity=5000):
-        self.atari_setting=False
+    def __init__(self, environment, capacity=5000,atari=False):
+        self.atari_setting=atari
         transition_type_str = self.get_transition_type_str(environment)
         self.buffer = np.zeros(capacity, dtype=transition_type_str)
         self.weights = np.zeros(capacity)
@@ -24,23 +24,24 @@ class ReplayBuffer:
         
 
     def get_transition_type_str(self, environment):
+        if self.atari_setting:
+            state_dim = (3,86,86)
+            state_dim_str = "(3,86,86)"
+            state_type_str = 'float32'
+            action_dim = 1
+            action_dim_str = '' if action_dim == () else str(action_dim)
+            action_type_str = 'int64'
+        else:
+            state_dim = environment.observation_space.shape[0]
+            state_dim_str = '' if state_dim == () else str(state_dim)
+            state_type_str = environment.observation_space.sample().dtype.name
+            action_dim = environment.action_space.shape
+            action_dim_str = '' if action_dim == () else str(action_dim)
+            action_type_str = environment.action_space.sample().__class__.__name__
         
-        
-        state_dim = 26 #environment.observation_size
-        state_dim_str = '' if state_dim == () else str(state_dim)
-        state_type_str = 'float32' #str(environment.observation_space.dtype)
-        action_dim = 5# environment.action_size
-        action_dim_str = '' if action_dim == () else str(action_dim)
-        action_type_str = 'int64' # str(environment.action_space.dtype)    
-
-        # type str for transition = 'state type, action type, reward type, state type'
+         # type str for transition = 'state type, action type, reward type, state type'
         transition_type_str = '{0}{1}, {2}{3}, float32, {0}{1}, bool'.format(state_dim_str, state_type_str,
                                                                              action_dim_str, action_type_str)
-        
-        print("transition_type_str: ", transition_type_str)
-        #transition_type_str = '26float32, float32, int64, 5int64, bool'
-        #print("transition_type_str: ", transition_type_str)
-        
         return transition_type_str
 
     def add_transition(self, transition):

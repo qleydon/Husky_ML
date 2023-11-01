@@ -29,38 +29,39 @@ class SACAgent:
     DISCOUNT_RATE = 0.99
     LEARNING_RATE = 10 ** -4
     SOFT_UPDATE_INTERPOLATION_FACTOR = 0.01
-    net_type = "dense_net"
 
     def __init__(self,environment,rnd):
         self.rnd_state_flag=False
         self.rnd_state_only=False
         self.environment = environment
-        self.state_dim = 26 #self.environment.observation_size
+        self.state_dim = 3 # 3 channels?
         self.action_dim = self.environment.action_size
+        if(self.action_dim == None):
+            self.action_dim = 5
         self.critic_local = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"dense_net",None)
+                                          self.action_dim,"conv_net",None)
 
         self.critic_local2 = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"dense_net",None)
+                                          self.action_dim,"conv_net",None)
 
         self.critic_optimiser = torch.optim.Adam(self.critic_local.parameters(), lr=self.LEARNING_RATE)
         self.critic_optimiser2 = torch.optim.Adam(self.critic_local2.parameters(), lr=self.LEARNING_RATE)
 
         self.critic_target = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"dense_net",None)
+                                          self.action_dim,"conv_net",None)
 
         self.critic_target2 =CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"dense_net",None)
+                                          self.action_dim,"conv_net",None)
 
 
         self.soft_update_target_networks(tau=1.)
 
         self.actor_local = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"dense_net",'softmax')
+                                          self.action_dim,"conv_net",'softmax')
         
         self.actor_optimiser = torch.optim.Adam(self.actor_local.parameters(), lr=self.LEARNING_RATE)
 
-        self.replay_buffer = ReplayBuffer(self.environment)
+        self.replay_buffer = ReplayBuffer(self.environment,atari=atari)
         self.rnd_flag=rnd
         if rnd:
             self._set_rnd()
@@ -70,7 +71,7 @@ class SACAgent:
         self.alpha_optimiser = torch.optim.Adam([self.log_alpha], lr=self.LEARNING_RATE)
     
     def _set_rnd(self):
-        output=self.critic_local.feat_foward(torch.rand((64,self.state_dim)))
+        output=self.critic_local.feat_foward(torch.rand((64,self.state_dim,86,86)))
         input_dim=2*(output.shape[1])
         loss_type="MAPE"
         input_dim2=2*(self.state_dim)
@@ -95,9 +96,6 @@ class SACAgent:
     
     def train_on_transition(self, state, discrete_action, next_state, reward, done):
         transition = (state, discrete_action, reward, next_state, done)
-
-        print("discrete action:", discrete_action)
-
         g_loss,l_loss,error=self.train_networks(transition)
         return g_loss,l_loss,error
     
@@ -182,8 +180,8 @@ class SACAgent:
 
             next_q_values = rewards_tensor + ~done_tensor * self.DISCOUNT_RATE*soft_state_values
 
-        print("action_tensor ", actions_tensor)
-        print("actions_tensor.dtype ", actions_tensor.dtype)
+        #print("action_tensor ", actions_tensor)
+        #print("actions_tensor.dtype ", actions_tensor.dtype)
 
         soft_q_values = self.critic_local(states_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
         soft_q_values2 = self.critic_local2(states_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
@@ -312,12 +310,15 @@ class SACAgent:
         self.critic_local.eval()  
         self.critic_local2.eval()
         self.actor_local.eval()
+    
         
         
     def save_state(self,path):
         self.replay_buffer.save_state(path)
         self.save_models(path)
+        self.tausetter.save_model(path)
         
     def load_state(self,path):
         self.replay_buffer.load_state(path+"\\agents_data")
         self.load_models(path)        
+        self.tausetter.load_model(path)     

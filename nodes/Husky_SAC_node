@@ -4,6 +4,7 @@ import os
 import numpy as np
 import time
 import sys
+import cv2
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
 from std_msgs.msg import Float32MultiArray
@@ -16,9 +17,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
 import matplotlib.pyplot as plt
 
+def resize_n_reshape(img):
+    resized=np.asarray(cv2.resize(img, (86,86), interpolation = cv2.INTER_AREA))
+    reshaped=np.reshape(resized,(3,86,86))
+    return reshaped
 
 
 universal_seed=1234567
@@ -67,6 +71,7 @@ if __name__ == '__main__':
             episode_reward = 0
             #state,_ = env.reset(seed=(universal_seed))
             state = env.reset()
+            state = resize_n_reshape(state)
             print('reset')
 
             done = False
@@ -76,6 +81,7 @@ if __name__ == '__main__':
                 i+=1
                 action = agent.get_next_action(state, evaluation_episode=evaluation_episode)
                 next_state, reward, done = env.step(action)
+                next_state = resize_n_reshape(next_state)
                 get_action.data = [action, episode_reward, reward]
                 #print(action)
                 #print(action.dtype)

@@ -26,11 +26,11 @@ class Env():
         self.goal_x = 0
         self.goal_y = 0
         self.heading = 0
-        self.action_size = 5# action_size
+        self.action_size = 5
         self.action_space = np.zeros(action_size)
         #self.observation_size = 480*640*3+2 #480x640 image * rgb + heading, distance
-        self.observation_size = 26 #((60, 80, 3), 1,1)
-        self.observation_space = np.random.random(26) #(np.zeros((60,80,3)), 0,10)
+        self.observation_size = (3,86,86) 
+        self.observation_space = np.random.random((480,640,3))
         self.initGoal = True
         self.get_goalbox = False
         self.position = Pose()
@@ -44,6 +44,11 @@ class Env():
         self.vel = 0.15
         self.ang = 0.0
         self.ang_decision = 0 # used in reward calculation
+
+    def resize_n_reshape(self, img):
+        resized=np.asarray(cv2.resize(img, (86,86), interpolation = cv2.INTER_AREA))
+        reshaped=np.reshape(resized,(3,86,86))
+        return reshaped
 
     def getGoalDistace(self):
         goal_distance = round(math.hypot(self.goal_x - self.position.position.x, self.goal_y - self.position.position.y), 2)
@@ -101,12 +106,10 @@ class Env():
         cv_image = bridge.imgmsg_to_cv2(img, desired_encoding="passthrough")
         # Convert sensor_msgs/Image to an OpenCV image
 
-        # Downsample the OpenCV image by a factor of 8
-        downsampled_image = cv2.resize(cv_image, None, fx=1/8, fy=1/8, interpolation=cv2.INTER_LINEAR)
-        downsampled_np = np.array(downsampled_image, dtype=float)
+        # Downsample the OpenCV image form (480x640) to (86x86)
+        img = self.resize_n_reshape(cv_image)
         
-        #self.observation_space = {downsampled_image, heading, current_distance}
-        self.observation_space = np.random.random(26)
+        self.observation_space = img
         return self.observation_space, done
 
     def setReward(self, state, done, action):
@@ -186,7 +189,7 @@ class Env():
         state, done = self.getState(Laser_data, Image_data)
         reward = self.setReward(state, done, action)
 
-        return np.asarray(state), reward, done
+        return state, reward, done
 
     def reset(self):
         rospy.wait_for_service('gazebo/reset_simulation')

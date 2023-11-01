@@ -246,7 +246,22 @@ class RNDTauSetter():
         Tau=num/denom+beta
         return Tau
         
-    
+    def save_model(self,file_path):
+        torch.save(self.target.state_dict(), file_path+"\\target")
+        torch.save(self.predictor_g.state_dict(), file_path+"\\predictor_g")
+        torch.save(self.predictor_l.state_dict(), file_path+"\\predictor_l")
+
+
+
+    def load_model(self,file_path):
+        self.target.load_state_dict(torch.load(file_path+"\\target"))
+        self.predictor_g.load_state_dict(torch.load(file_path+"\\predictor_g"))
+        self.predictor_l.load_state_dict(torch.load(file_path+"\\predictor_l"))
+        
+        self.target.eval()  
+        self.predictor_g.eval()
+        self.predictor_l.eval()
+        
     # def tau_setter_rv(self,base_tau,states_global,states_local,prior_shift,prior_tau):
     #    global_error,local_error= self.calculate_error(states_global, states_local)
     #    n_local,n_global=self.norm_error(local_error),self.norm_error(local_error)
