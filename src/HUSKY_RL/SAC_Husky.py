@@ -61,7 +61,7 @@ class SACAgent:
         
         self.actor_optimiser = torch.optim.Adam(self.actor_local.parameters(), lr=self.LEARNING_RATE)
 
-        self.replay_buffer = ReplayBuffer(self.environment,atari=atari)
+        self.replay_buffer = ReplayBuffer(self.environment,atari=True)
         self.rnd_flag=rnd
         if rnd:
             self._set_rnd()
@@ -95,6 +95,11 @@ class SACAgent:
         return discrete_action
     
     def train_on_transition(self, state, discrete_action, next_state, reward, done):
+        #print("state_shape", state.shape())
+        #print("discrete_action", discrete_action)
+        #print("next_state.shape", next_state.shape())
+        #print("reward", reward)
+        #print("done", done)
         transition = (state, discrete_action, reward, next_state, done)
         g_loss,l_loss,error=self.train_networks(transition)
         return g_loss,l_loss,error

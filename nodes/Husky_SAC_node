@@ -71,7 +71,7 @@ if __name__ == '__main__':
             episode_reward = 0
             #state,_ = env.reset(seed=(universal_seed))
             state = env.reset()
-            state = resize_n_reshape(state)
+            #state = resize_n_reshape(state)
             print('reset')
 
             done = False
@@ -81,7 +81,7 @@ if __name__ == '__main__':
                 i+=1
                 action = agent.get_next_action(state, evaluation_episode=evaluation_episode)
                 next_state, reward, done = env.step(action)
-                next_state = resize_n_reshape(next_state)
+                #next_state = resize_n_reshape(next_state)
                 get_action.data = [action, episode_reward, reward]
                 #print(action)
                 #print(action.dtype)
@@ -113,6 +113,7 @@ if __name__ == '__main__':
                 run_evaluation_results.append(episode_reward)
                 run_evaluation_steps.append(evaluation_steps)
 
+            print("episode reward:", episode_reward)
             pub_result.publish(result)
 
         agent_results.append(run_results)

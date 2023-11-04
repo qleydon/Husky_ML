@@ -35,7 +35,7 @@ class Env():
         self.get_goalbox = False
         self.position = Pose()
         self.pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=5)
-        self.sub_odom = rospy.Subscriber('odom', Odometry, self.getOdometry)
+        self.sub_odom = rospy.Subscriber('husky_velocity_controller/odom', Odometry, self.getOdometry)
         self.reset_proxy = rospy.ServiceProxy('gazebo/reset_simulation', Empty)
         self.unpause_proxy = rospy.ServiceProxy('gazebo/unpause_physics', Empty)
         self.pause_proxy = rospy.ServiceProxy('gazebo/pause_physics', Empty)
@@ -44,6 +44,11 @@ class Env():
         self.vel = 0.15
         self.ang = 0.0
         self.ang_decision = 0 # used in reward calculation
+        self.previous_distance = 0
+        self.current_distance = 0
+
+        self.roll = 0
+        self.pitch = 0
 
     def resize_n_reshape(self, img):
         resized=np.asarray(cv2.resize(img, (86,86), interpolation = cv2.INTER_AREA))
@@ -51,17 +56,17 @@ class Env():
         return reshaped
 
     def getGoalDistace(self):
-        goal_distance = round(math.hypot(self.goal_x - self.position.position.x, self.goal_y - self.position.position.y), 2)
-
+        goal_distance = math.hypot(self.goal_x - self.position.x, self.goal_y - self.position.y)
+        position = (self.position.x, self.position.y)
         return goal_distance
 
     def getOdometry(self, odom):
         self.position = odom.pose.pose.position
         orientation = odom.pose.pose.orientation
         orientation_list = [orientation.x, orientation.y, orientation.z, orientation.w]
-        _, _, yaw = euler_from_quaternion(orientation_list)
+        self.roll, self.pitch, yaw = euler_from_quaternion(orientation_list)
 
-        goal_angle = math.atan2(self.goal_y - self.position.position.y, self.goal_x - self.position.position.x)
+        goal_angle = math.atan2(self.goal_y - self.position.y, self.goal_x - self.position.x)
 
         heading = goal_angle - yaw
         if heading > pi:
@@ -74,10 +79,10 @@ class Env():
 
     def getState(self, scan, img):
         scan_range = []
+        scan_ds = []
         heading = self.heading
-        min_range = 0.1
+        min_range = 0.2
         done = False
-
         for i in range(len(scan.ranges)):
             if scan.ranges[i] == float('Inf'):
                 scan_range.append(3.5)
@@ -86,11 +91,33 @@ class Env():
             else:
                 scan_range.append(scan.ranges[i])
 
-        if min_range > min(scan_range) > 0:
+        #720 scan ranges, average by 20 scand (10 degrees)
+        crash_flag = False
+        for i in range(36):
+            if i== 15 or i == 16 or i==17:
+                scan_ds.append(1) #safe number
+                continue # seeing camera
+            start_index = i * 20
+            end_index = start_index + 20
+            sample = scan_range[start_index:end_index]
+            val = sum(sample)/20
+            scan_ds.append(val)
+            if(i < 4 or i > 26):
+                if val < 0.8:
+                    crash_flag = True
+            else:
+                if val < 0.4:
+                    crash_flag = True
+
+
+        min_range_found = min(scan_ds) # for debugging
+        #if min_range > min_range_found > 0:
+        if crash_flag:
             done = True
 
-        current_distance = round(math.hypot(self.goal_x - self.position.position.x, self.goal_y - self.position.position.y),2)
-        if current_distance < 1:
+        self.previous_distance = self.current_distance
+        self.current_distance = self.getGoalDistace()
+        if self.current_distance < 1:
             self.get_goalbox = True
 
         # aRather than taking 24 samples, the 360 are downsampled to 
@@ -110,28 +137,11 @@ class Env():
         img = self.resize_n_reshape(cv_image)
         
         self.observation_space = img
+        #print(self.observation_space)
         return self.observation_space, done
 
     def setReward(self, state, done, action):
-        yaw_reward = 0
-        current_distance = state[-1]
-        heading = state[-2]
-        heading_reward = - 0.1 
-        '''if type(action) is not int:
-            #print(action)
-            #print(type(action))
-            action = int(action) # don't actually need this'''
-
-        distance_rate = 2 ** (current_distance / self.goal_distance)
-
-        
-        angle = -pi / 4 + heading + (pi / 8 * self.ang_decision) + pi / 2
-        tr = 1 - 4 * math.fabs(0.5 - math.modf(0.25 + 0.5 * angle % (2 * math.pi) / math.pi)[0])
-        yaw_reward = tr
-
-        
-        #reward = ((round(yaw_reward * 5, 2)) * distance_rate)
-        reward = 0.01 *  current_distance - self.goal_distance # small reward for movint towards goal.
+        reward = -(self.current_distance - self.previous_distance) # small reward for moving towards goal.
 
         if done:
             rospy.loginfo("Collision!!")
