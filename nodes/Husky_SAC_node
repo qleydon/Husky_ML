@@ -30,9 +30,9 @@ torch.manual_seed(universal_seed)
 np.random.seed(universal_seed)
 
 TRAINING_EVALUATION_RATIO = 4
-RUNS = 1
-EPISODES_PER_RUN = 40
-STEPS_PER_EPISODE = 300
+RUNS = 2
+EPISODES_PER_RUN = 2000
+STEPS_PER_EPISODE = 900
 run_evaluation_results=[]
 run_evaluation_steps=[]
 total_global=[]
@@ -77,7 +77,7 @@ if __name__ == '__main__':
             done = False
             i = 0
             while not done and i < STEPS_PER_EPISODE:
-                time.sleep(0.1)
+                rospy.sleep(1)
                 i+=1
                 action = agent.get_next_action(state, evaluation_episode=evaluation_episode)
                 next_state, reward, done = env.step(action)
@@ -113,14 +113,16 @@ if __name__ == '__main__':
                 run_evaluation_results.append(episode_reward)
                 run_evaluation_steps.append(evaluation_steps)
 
+            if episode_number%500==0:
+                agent.save_state("/home/quinn/husky_ws/src/husky_ML/experiments/e5_")
+
             print("episode reward:", episode_reward)
             pub_result.publish(result)
 
         agent_results.append(run_results)
-    agent.save_state("experiment")
-
-    env.close()
-
+        agent.save_state("/home/quinn/husky_ws/src/husky_ML/experiments/a_")
+    
+    #env.close()
     n_results = EPISODES_PER_RUN // TRAINING_EVALUATION_RATIO
     results_mean = [np.mean([agent_result[n] for agent_result in agent_results]) for n in range(n_results)]
     results_std = [np.std([agent_result[n] for agent_result in agent_results]) for n in range(n_results)]

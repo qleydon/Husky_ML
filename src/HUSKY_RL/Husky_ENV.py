@@ -12,7 +12,8 @@ from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
-#from respawnGoal import Respawn
+from gazebo_msgs.srv import GetModelState
+from gazebo_msgs.msg import ModelStates
 from src.HUSKY_RL.respawnGoal import Respawn
 
 import cv2
@@ -35,17 +36,21 @@ class Env():
         self.get_goalbox = False
         self.position = Pose()
         self.pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=5)
-        self.sub_odom = rospy.Subscriber('husky_velocity_controller/odom', Odometry, self.getOdometry)
+        #self.sub_odom = rospy.Subscriber('husky_velocity_controller/odom', Odometry, self.getOdometry)
+        self.sub_gazebo = rospy.Subscriber('/gazebo/model_states', ModelStates, self.model_states_callback)
+
         self.reset_proxy = rospy.ServiceProxy('gazebo/reset_simulation', Empty)
         self.unpause_proxy = rospy.ServiceProxy('gazebo/unpause_physics', Empty)
         self.pause_proxy = rospy.ServiceProxy('gazebo/pause_physics', Empty)
         self.respawn_goal = Respawn()
 
-        self.vel = 0.15
+        self.vel = 0.25
         self.ang = 0.0
         self.ang_decision = 0 # used in reward calculation
         self.previous_distance = 0
         self.current_distance = 0
+        self.initial_distance = 0
+        self.goal_distance = 0
 
         self.roll = 0
         self.pitch = 0
@@ -53,12 +58,24 @@ class Env():
     def resize_n_reshape(self, img):
         resized=np.asarray(cv2.resize(img, (86,86), interpolation = cv2.INTER_AREA))
         reshaped=np.reshape(resized,(3,86,86))
-        return reshaped
+        return reshaped/255
 
     def getGoalDistace(self):
         goal_distance = math.hypot(self.goal_x - self.position.x, self.goal_y - self.position.y)
         position = (self.position.x, self.position.y)
         return goal_distance
+    
+    def model_states_callback(self, msg):
+        # Find the index of 'husky' in the names list
+        try:
+            husky_index = msg.name.index('husky')
+        except ValueError:
+            rospy.logwarn("Could not find 'husky' in model_states")
+            return
+
+        # Extract the position information for 'husky'
+        self.position = msg.pose[husky_index].position
+
 
     def getOdometry(self, odom):
         self.position = odom.pose.pose.position
@@ -103,10 +120,10 @@ class Env():
             val = sum(sample)/20
             scan_ds.append(val)
             if(i < 4 or i > 26):
-                if val < 0.8:
+                if val < 0.6:
                     crash_flag = True
             else:
-                if val < 0.4:
+                if val < 0.2:
                     crash_flag = True
 
 
@@ -115,8 +132,10 @@ class Env():
         if crash_flag:
             done = True
 
+        # update distances
         self.previous_distance = self.current_distance
         self.current_distance = self.getGoalDistace()
+
         if self.current_distance < 1:
             self.get_goalbox = True
 
@@ -141,11 +160,12 @@ class Env():
         return self.observation_space, done
 
     def setReward(self, state, done, action):
-        reward = -(self.current_distance - self.previous_distance) # small reward for moving towards goal.
+        reward = -2*(self.current_distance - self.previous_distance) # small reward for moving towards goal.
+        #reward = 0.01 * (self.goal_distance - self.current_distance)
 
         if done:
             rospy.loginfo("Collision!!")
-            reward = -200
+            reward = -30 #-200
             self.pub_cmd_vel.publish(Twist())
 
         if self.get_goalbox:
@@ -227,6 +247,7 @@ class Env():
             self.goal_x, self.goal_y = self.respawn_goal.getPosition()
             self.initGoal = False
 
+        #self.initial_distance = 0 #reset 
         self.goal_distance = self.getGoalDistace()
         state, done = self.getState(Laser_data, Image_data)
 
