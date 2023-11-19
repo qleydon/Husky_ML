@@ -1,0 +1,225 @@
+#!/usr/bin/env python
+#################################################################################
+# Copyright 2018 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#################################################################################
+
+# Authors: Gilbert #
+
+import rospy
+import os
+import json
+import numpy as np
+import random
+import time
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from collections import deque
+from std_msgs.msg import Float32MultiArray
+from src.HUSKY_RL.husky import Env
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+
+
+EPISODES = 10000
+BATCH_SIZE = 64
+MIN_SIZE_BUFFER = 100
+BUFFER_CAPACITY = 100000 #100,000
+
+LR = 0.00025 # 0.0001
+HIDDEN_SIZE = 128
+
+GAMMA = 0.99
+TAU = 0.1
+EPSILON_INITIAL = 0.6
+EPSILON_DECAY = 0.992
+EPSILON_MIN = 0.05
+
+MAX_GAMES = 400
+MAX_EPISODES = 250
+
+#PATH = '/home/quinn/dl_ws/src/turtlebot3_machine_learning/turtlebot3_dqn/save_model'
+#PATH_O = '/home/quinn/dl_ws/src/turtlebot3_machine_learning/turtlebot3_dqn/save_model/O_Leydon_S2_128_400.pth'
+#PATH_T = '/home/quinn/dl_ws/src/turtlebot3_machine_learning/turtlebot3_dqn/save_model/T_Leydon_S2_128_400.pth'
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+class ReplayBuffer:
+    def __init__(self, buffer_size = BUFFER_CAPACITY):
+        self.buffer_size = buffer_size
+        self.buffer = []
+
+    def add(self, experience):
+        self.buffer.append(experience)
+        if len(self.buffer) > self.buffer_size: #overflow
+            self.buffer.pop() # remove first 
+        
+    def sample(self, batch_size=BATCH_SIZE):
+        return random.sample(self.buffer, batch_size)
+    def get_size(self):
+        return len(self.buffer)
+
+class DQN(nn.Module):
+    def __init__(self, input_size, output_size, hidden_size=HIDDEN_SIZE):
+        super().__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, output_size)
+        self.relu = nn.ReLU()
+
+    def forward(self,x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        #x = self.relu(self.fc3(x))
+        x=self.fc3(x)
+        return x
+    
+class DoubleDQNAgent:
+    def __init__(self, state_size, action_size, gamma = GAMMA, epsilon_initial=1.0):
+        self.action_size = action_size
+        self.state_size = state_size
+        self.epsilon = epsilon_initial
+        self.gamma = gamma
+        self.batch_size = BATCH_SIZE
+        self.buffer = ReplayBuffer()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.online_network = DQN(state_size, action_size).to(self.device)
+        self.target_network = DQN(state_size, action_size).to(self.device)
+        self.target_network.load_state_dict(self.online_network.state_dict()) # initializes target network to same weights as the online network
+        self.optimizer = optim.Adam(self.online_network.parameters(), lr = LR)
+
+
+    def forward(self, state):
+        if self.epsilon > np.random.rand(): #explore
+            action = torch.zeros(self.action_size, dtype= torch.float32)
+            action[np.random.randint(self.action_size)] =1
+            action_t = torch.argmax(action).item()
+            return action_t
+
+        else: #exploit
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+            q_values = self.online_network(state)
+            action = torch.argmax(q_values).item()
+            return action # argmax returned as scalar
+        
+    def learn(self):
+        if self.buffer.get_size() < MIN_SIZE_BUFFER:
+            return
+
+        experiences = self.buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones = zip(*experiences)
+        states = torch.stack(states).float().to(self.device)
+        actions = torch.from_numpy(np.vstack(actions)).long().to(self.device)
+        rewards = torch.from_numpy(np.vstack(rewards)).float().to(self.device)
+        next_states = torch.stack(next_states).float().to(self.device)
+        dones = torch.from_numpy(np.vstack(dones).astype(np.uint8)).float().to(self.device)
+
+        # Compute Q values and target Q values
+        q_values = self.online_network(states).gather(1, actions)
+        next_q_values = self.target_network(next_states).detach()
+        max_next_q_values = next_q_values.max(1)[0].unsqueeze(1)
+        target_q_values = rewards + self.gamma * max_next_q_values * (1 - dones)
+
+        # Compute the loss and backpropagate
+        loss = F.mse_loss(q_values, target_q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # Update the target network
+        self.update_target_network()
+
+
+    
+    def add_to_buffer(self, state, action, reward, next_state, done):
+        self.buffer.add((state, action, reward, next_state, done))
+
+    def update_target_network(self):
+        for target_param, online_param in zip(self.target_network.parameters(), self.online_network.parameters()):
+            target_param.data.copy_(TAU * online_param.data + (1 - TAU) * target_param.data)
+
+    def update_epsilon(self):
+        self.epsilon = max(self.epsilon *EPSILON_DECAY, EPSILON_MIN)
+
+if __name__ == '__main__':
+    print("starting up")
+    rospy.init_node('husky_dqn')
+    pub_result = rospy.Publisher('result', Float32MultiArray, queue_size=5)
+    pub_get_action = rospy.Publisher('get_action', Float32MultiArray, queue_size=5)
+    result = Float32MultiArray()
+    get_action = Float32MultiArray()
+
+    state_size = 26
+    action_size = 5
+
+    env = Env(action_size)
+    scores, episodes = [], []
+    scores_100 = []
+    global_step = 0
+    start_time = time.time()
+    
+    agent = DoubleDQNAgent(state_size, action_size)
+
+    '''if os.path.exists(PATH_O):
+        agent.online_network.load_state_dict(torch.load(PATH_O))
+        print('loaded online weights')
+    if os.path.exists(PATH_T):
+        agent.target_network.load_state_dict(torch.load(PATH_T))
+        print('loaded target weights')'''
+
+    for game in range(MAX_GAMES): # take a total of EPISODES steps
+        done = False
+        state = env.reset()
+        state = torch.from_numpy(state).to(device)
+        score = 0
+
+        for episode in range(MAX_EPISODES): # take 1000 actions
+            time.sleep(0.1)
+            action = agent.forward(state)
+            next_state, reward, done = env.step(action)
+            score += reward
+            next_state = torch.from_numpy(next_state).to(device)
+            agent.add_to_buffer(state, action, reward, next_state, done)
+            agent.learn()
+            state = next_state.to(device)
+
+            get_action.data = [action, score, reward]
+            pub_get_action.publish(get_action)
+
+            if episode == MAX_EPISODES-1:
+                rospy.loginfo("Time out!!")
+                done = True
+
+            if done:
+                pub_result.publish(result)
+                scores.append(score)
+                m, s = divmod(int(time.time() - start_time), 60)
+                h, m = divmod(m, 60)
+
+                rospy.loginfo('Game: %d score: %.2f time: %d:%02d:%02d',
+                              game, score, h, m, s)
+                break
+        
+        scores.append(score)
+        agent.update_epsilon()
+        last_100_avg = np.mean(scores[-100:])
+        scores_100.append(last_100_avg)
+
+    #compleatly done
+    #torch.save(agent.online_network.state_dict(), PATH_O)
+    #torch.save(agent.target_network.state_dict(), PATH_T)

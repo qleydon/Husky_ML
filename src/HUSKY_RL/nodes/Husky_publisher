@@ -1,0 +1,80 @@
+#!/usr/bin/env python
+
+import rospy
+import numpy as np
+
+from geometry_msgs.msg import Twist, Point, Pose
+from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Odometry
+from std_srvs.srv import Empty
+
+from gazebo_msgs.msg import ModelState
+from gazebo_msgs.srv import GetModelState
+from gazebo_msgs.msg import ModelStates
+
+
+def model_states_callback(msg):
+    # Find the index of 'husky' in the names list
+    try:
+        husky_index = msg.name.index('husky')
+    except ValueError:
+        rospy.logwarn("Could not find 'husky' in model_states")
+        return
+
+    # Extract the position information for 'husky'
+    husky_position = msg.pose[husky_index].position
+
+    # Print the position
+    print(f"Husky Position: X={husky_position.x}, Y={husky_position.y}, Z={husky_position.z}")
+
+def main():
+    rospy.init_node('husky_position_reader', anonymous=True)
+
+    # Subscribe to the /gazebo/model_states topic
+    rospy.Subscriber('/gazebo/model_states', ModelStates, model_states_callback)
+
+    # Spin to keep the script running
+    rospy.spin()
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+'''def show_gazebo_models():
+    while(1):
+        name = "husky"
+        model_coords = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)
+        #print(model_coords)
+        resp_coordinates = model_coords(name, 'base_link')
+        position = resp_coordinates.pose
+
+        print(position.position.x)
+
+if __name__ == '__main__':
+    show_gazebo_models()'''
+
+
+
+'''
+def talker():
+   pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+   rate = rospy.Rate(10) # 10hz
+   while not rospy.is_shutdown():
+    vel_cmd = Twist()
+    vel_cmd.linear.x = 0.15
+    vel_cmd.angular.z = 0.0
+    pub_cmd_vel.publish(vel_cmd)
+    print("velocity: 0.15, angle: 0.0")
+    rate.sleep()
+
+if __name__ == '__main__':
+    print("starting")
+    rospy.init_node('Husky_dqn')
+    try:
+        talker()
+    except rospy.ROSInterruptException:
+        pass
+        
+'''
