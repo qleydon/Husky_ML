@@ -26,7 +26,7 @@ import os
 class SACAgent:
 
     ALPHA_INITIAL = 1.
-    REPLAY_BUFFER_BATCH_SIZE = 100
+    REPLAY_BUFFER_BATCH_SIZE = 256
     DISCOUNT_RATE = 0.99
     LEARNING_RATE = 10 ** -4
     SOFT_UPDATE_INTERPOLATION_FACTOR = 0.01
@@ -38,7 +38,7 @@ class SACAgent:
         self.state_dim = 3 # 3 channels?
         self.action_dim = self.environment.action_size
         if(self.action_dim == None):
-            self.action_dim = 5
+            self.action_dim = 7 #5
         self.critic_local = CustomNetwork(None,True,self.state_dim,
                                           self.action_dim,"conv_net",None)
 

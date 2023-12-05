@@ -93,11 +93,9 @@ class Respawn():
 
         '''
         
-        self.goal_position.position.x = 31
-        self.goal_position.position.y = 21
+        self.goal_position.position.x = 32.3 #31
+        self.goal_position.position.y = 11 #21
         
-        #self.goal_position.position.x = 20.78
-        #self.goal_position.position.y = -1.65
 
 
         time.sleep(0.5)

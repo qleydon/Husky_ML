@@ -3,6 +3,7 @@ import rospy
 import os
 import numpy as np
 import time
+import random
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
@@ -25,10 +26,10 @@ universal_seed=1234567
 torch.manual_seed(universal_seed) 
 np.random.seed(universal_seed)
 
-TRAINING_EVALUATION_RATIO = 4
+TRAINING_EVALUATION_RATIO = 0.3 #4
 RUNS = 1
-EPISODES_PER_RUN = 40
-STEPS_PER_EPISODE = 300
+EPISODES_PER_RUN = 9000
+STEPS_PER_EPISODE = 900
 run_evaluation_results=[]
 run_evaluation_steps=[]
 total_global=[]
@@ -50,33 +51,43 @@ if __name__ == '__main__':
     get_action = Float32MultiArray()
 
     #state_size = 26
-    action_size = 5
+    action_size = 7 #5
 
     env = Env(action_size)
     agent_results = []
     steps=0
     evaluation_steps=0
 
+    global_maxtime=0.0
+    episode_maxtime=0.0
+    
     for run in range(RUNS):
         agent = SACAgent(env, True)
         print('agent set up')
         run_results = []
         for episode_number in range(EPISODES_PER_RUN):
             print('\r', f'Run: {run + 1}/{RUNS} | Episode: {episode_number + 1}/{EPISODES_PER_RUN}', end=' ')
-            evaluation_episode = episode_number % TRAINING_EVALUATION_RATIO == 0
+            #evaluation_episode = episode_number % TRAINING_EVALUATION_RATIO == 0
+            evaluation_episode = random.uniform(0, 1) <= TRAINING_EVALUATION_RATIO
             episode_reward = 0
             #state,_ = env.reset(seed=(universal_seed))
             state = env.reset()
-            print('reset')
+            #print('reset')
 
             done = False
             i = 0
+            episode_maxtime = 0.0
+            #time1 = time.time()
             while not done and i < STEPS_PER_EPISODE:
-                time.sleep(0.1)
+                #episode_maxtime = max(time1-time.time(), episode_maxtime)
+                #global_maxtime = max(global_maxtime, episode_maxtime)
+                rospy.sleep(0.1)
+                #time1 = time.time()
                 i+=1
                 action = agent.get_next_action(state, evaluation_episode=evaluation_episode)
                 next_state, reward, done = env.step(action)
                 get_action.data = [action, episode_reward, reward]
+                #print(state)
                 #print(action)
                 #print(action.dtype)
                 pub_get_action.publish(get_action)
@@ -108,11 +119,12 @@ if __name__ == '__main__':
                 run_evaluation_steps.append(evaluation_steps)
 
             pub_result.publish(result)
+            print(f"{episode_reward}, {evaluation_episode}")
+            #print(f"episode_maxtime: {episode_maxtime} seconds, global_maxtime: {global_maxtime} seconds")
+
 
         agent_results.append(run_results)
     agent.save_state("experiment")
-
-    env.close()
 
     n_results = EPISODES_PER_RUN // TRAINING_EVALUATION_RATIO
     results_mean = [np.mean([agent_result[n] for agent_result in agent_results]) for n in range(n_results)]
@@ -123,8 +135,19 @@ if __name__ == '__main__':
     x_vals = list(range(len(results_mean)))
     x_vals = [x_val * (TRAINING_EVALUATION_RATIO - 1) for x_val in x_vals]
 
+
+    ax1 = plt.gca()
+    ax1.set_ylim([-1.5, 2])
+    ax1.set_ylabel('Episode Score')
+    ax1.set_xlabel('Training Episode')
+    ax1.plot(x_vals, results_mean, label='raw result', color='blue')
+    plt.legend(loc='best')
+    plt.savefig('/home/quinn-behemoth/husky_ws/src/husky_ML/src/plots/plot_9000_2.png')
+
+    plt.clf()
+
     ax = plt.gca()
-    ax.set_ylim([0, 300])
+    ax.set_ylim([-1.5, 2])
     ax.set_ylabel('Episode Score')
     ax.set_xlabel('Training Episode')
     ax.plot(x_vals, results_mean, label='Average Result', color='blue')
@@ -132,4 +155,5 @@ if __name__ == '__main__':
     ax.plot(x_vals, mean_minus_std, color='blue', alpha=0.1)
     ax.fill_between(x_vals, y1=mean_minus_std, y2=mean_plus_std, alpha=0.1, color='blue')
     plt.legend(loc='best')
+    plt.savefig('/home/quinn-behemoth/husky_ws/src/husky_ML/src/plots/plot_9000_1.png')
     plt.show()

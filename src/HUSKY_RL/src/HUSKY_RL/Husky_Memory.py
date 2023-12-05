@@ -10,7 +10,7 @@ import os
 
 class ReplayBuffer:
 
-    def __init__(self, environment, capacity=10000,atari=False):
+    def __init__(self, environment, capacity=80000,atari=False): # capacity = 10000
         self.atari_setting=atari
         transition_type_str = self.get_transition_type_str(environment)
         self.buffer = np.zeros(capacity, dtype=transition_type_str)

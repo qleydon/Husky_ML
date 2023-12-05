@@ -21,13 +21,14 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import numpy as np
 
+from matplotlib import pyplot as plt
 
 class Env():
     def __init__(self, action_size):
         self.goal_x = 0
         self.goal_y = 0
         self.heading = 0
-        self.action_size = 5
+        self.action_size = action_size
         self.action_space = np.zeros(action_size)
         #self.observation_size = 480*640*3+2 #480x640 image * rgb + heading, distance
         self.observation_size = (3,86,86) 
@@ -44,7 +45,7 @@ class Env():
         self.pause_proxy = rospy.ServiceProxy('gazebo/pause_physics', Empty)
         self.respawn_goal = Respawn()
 
-        self.vel = 0.25
+        self.vel = 0.6
         self.ang = 0.0
         self.vel_cmd = Twist()
         self.ang_decision = 0 # used in reward calculation
@@ -56,10 +57,20 @@ class Env():
         self.roll = 0
         self.pitch = 0
 
+        self.crash_table = [0.5277445361,0.4807631344,0.448892577,0.4271859065,0.4133652076,0.406783548,0.406431967,0.4068361089,0.3983151644,0.3957613125,
+                            0.3347469971,0.2897197455,0.2595413186,0.2395230107,0.2256503619,0.5,0.5,0.5,0.2076443799,0.2102404863,
+                            0.2158739664,0.2255596749,0.2400515437,0.2593861885,0.2894249037,0.334886238,0.4090430573,0.4263875529,0.4363628432,0.4534364715,
+                            0.4803785101,0.4995101631,0.5169088393,0.5445159167,0.5851512015,0.6444034994]
+
     def resize_n_reshape(self, img):
-        resized=np.asarray(cv2.resize(img, (86,86), interpolation = cv2.INTER_AREA))
-        reshaped=np.reshape(resized,(3,86,86))
-        return reshaped/255
+        resized=np.asarray(cv2.resize(img, (86,86)))
+        reshaped=resized.transpose((2,0,1))
+        reshaped = reshaped/255
+        #transposed_array = reshaped.transpose((1, 2, 0))
+        #plt.imshow(transposed_array, )
+        #plt.show()
+        
+        return reshaped
 
     def getGoalDistace(self):
         goal_distance = math.hypot(self.goal_x - self.position.x, self.goal_y - self.position.y)
@@ -122,12 +133,15 @@ class Env():
             sample = scan_range[start_index:end_index]
             val = sum(sample)/20
             scan_ds.append(val)
-            if(i < 4 or i > 26):
+            if val <= self.crash_table[i]+0.05:
+                crash_flag = True
+
+            '''if(i < 4 or i > 26):
                 if val < 0.6:
                     crash_flag = True
             else:
-                if val < 0.2:
-                    crash_flag = True
+                if val < 0.35:
+                    crash_flag = True'''
 
 
         min_range_found = min(scan_ds) # for debugging
@@ -152,10 +166,16 @@ class Env():
         #image is 480x640, down sample by 8 to 60x80
 
         bridge = CvBridge()
-        cv_image = bridge.imgmsg_to_cv2(img, desired_encoding="passthrough")
+        #cv_image = bridge.imgmsg_to_cv2(img, desired_encoding="passthrough")
+        cv_image = bridge.imgmsg_to_cv2(img, 'bgr8')
         # Convert sensor_msgs/Image to an OpenCV image
-
+        cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+        
+        #np_img = np.asarray(cv_image)
+        #plt.imshow(np_img)
+        #plt.show()
         # Downsample the OpenCV image form (480x640) to (86x86)
+        
         img = self.resize_n_reshape(cv_image)
         
         self.observation_space = img
@@ -163,17 +183,19 @@ class Env():
         return self.observation_space, done
 
     def setReward(self, state, done, action):
-        reward = -2*(self.current_distance - self.previous_distance) # small reward for moving towards goal.
-        #reward = 0.01 * (self.goal_distance - self.current_distance)
+        #reward = -2*(self.current_distance - self.previous_distance) # small reward for moving towards goal.
+        reward = -0.02*(self.current_distance - self.previous_distance) # max 0.374 * 2
 
         if done:
             rospy.loginfo("Collision!!")
-            reward = -30 #-200
+            #reward = -30 #-200
+            reward = -0.3
             self.pub_cmd_vel.publish(Twist())
 
         if self.get_goalbox:
             rospy.loginfo("Goal!!")
-            reward = 200
+            #reward = 200
+            reward = 0.5
             self.pub_cmd_vel.publish(Twist())
             print("Twist")
             self.goal_x, self.goal_y = self.respawn_goal.getPosition(True, delete=True)
@@ -186,19 +208,10 @@ class Env():
 
     def step(self, action):
         max_angular_vel = 1.5
-        if action < 5:
-            self.ang = ((5- 1)/2 - action) * max_angular_vel * 0.5
-            '''if type(action) is not int:
-                print(action)
-                #print(type(action))
-                self.ang_decision = int(action) 
-            else:
-                self.ang_decision = action'''
-            
-            self.ang_decision = action
-        
-        elif action < 10:
-            self.vel = -(action - 5)*0.1 + 0.1 # range of 0.1 to 0.5
+        #self.ang = ((5- 1)/2 - action) * max_angular_vel * 0.5
+        action_map = [-0.5, -0.2, -0.1, 0, 0.1, 0.2, 0.5]
+        self.ang = action_map[action]
+        #self.ang_decision = action
 
         self.vel_cmd.linear.x = self.vel
         self.vel_cmd.angular.z = self.ang
