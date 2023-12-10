@@ -31,6 +31,7 @@ class Respawn():
         self.sub_model = rospy.Subscriber('gazebo/model_states', ModelStates, self.checkModel)
         self.check_model = False
         self.index = 0
+        self.toggle = True
         
 
     def checkModel(self, model):
@@ -92,10 +93,15 @@ class Respawn():
             self.goal_position.position.y = goal_y_list[self.index]
 
         '''
-        
-        self.goal_position.position.x = 32.3 #31
-        self.goal_position.position.y = 11 #21
-        
+        if self.toggle == True:
+            self.goal_position.position.x = 32.3 #31
+            self.goal_position.position.y = 11 + random.uniform(-5, 5) # some randomization
+            self.toggle = False
+
+        elif self.toggle == False:
+            self.goal_position.position.x = 0
+            self.goal_position.position.y = 11 + random.uniform(-5, 5) # some randomization
+            self.toggle = True
 
 
         time.sleep(0.5)

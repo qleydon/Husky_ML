@@ -3,11 +3,18 @@
 import rospy
 import time
 import numpy as np
+import cv2
 
 from geometry_msgs.msg import Twist, Point, Pose
 from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
 
 '''def talker():
    pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=10)
@@ -29,7 +36,7 @@ if __name__ == '__main__':
         pass'''
 
 
-def listener():
+'''def listener():
     while True:
         rospy.init_node('listener', anonymous=True)
         scan = None
@@ -67,11 +74,71 @@ def listener():
                     crash_flag = True
         
         print(scan_ds)
-        rospy.sleep(2)
+        rospy.sleep(2)'''
+
+class DepthSubscriber:
+    def __init__(self):
+        rospy.init_node('depth_subscriber', anonymous=True)
+
+        # Set the callback function to handle incoming depth images
+        rospy.Subscriber('/realsense/depth/image_rect_raw', Image, self.depth_callback)
+
+        # Initialize CvBridge
+        self.bridge = CvBridge()
     
+    def plot_3d(self, depth_image):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        x_vals = np.arange(0, depth_image.shape[1])
+        y_vals = np.arange(0, depth_image.shape[0])
+        x_vals, y_vals = np.meshgrid(x_vals, y_vals)
+        ax.plot_surface(x_vals, y_vals, depth_image, cmap='viridis')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Depth')
+        plt.title('3D Depth Image')
+        plt.show()
+        rospy.sleep(1)
+
+    def plot_40th_row(self, row_data):
+        if row_data.ndim == 1:
+            plt.plot(row_data)
+        else:
+            plt.plot(row_data.flatten())
+        plt.xlabel('Column')
+        plt.ylabel('Depth')
+        plt.title('Depth Values of the 40th Row')
+        plt.show()
+        rospy.sleep(1)
+
+    def depth_callback(self, depth_msg):
+        try:
+            # Convert the ROS depth image message to a NumPy array
+            depth_image = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
+
+            # resize
+            resized=np.asarray(cv2.resize(depth_image, (86,86)))
+            resized[np.isnan(resized)] = 8
+            resized = resized / 8
+            
+            # Plot Depth
+            #self.plot_3d(resized)
+            # Plot 40th row
+            self.plot_40th_row(resized[45, :])
+
+            # Print the NumPy array
+            print("Depth Array:\n", np.array(depth_image))
+
+            rospy.sleep(3)
+
+        except Exception as e:
+            rospy.logerr("Error processing depth image: %s", str(e))
 
 if __name__ == '__main__':
+    depth_subscriber = DepthSubscriber()
+
     try:
-        listener()
-    except rospy.ROSInterruptException:
-        pass
+        rospy.spin()
+    except KeyboardInterrupt:
+        print("Shutting down")
+

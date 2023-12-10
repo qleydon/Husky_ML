@@ -28,19 +28,23 @@ class ReplayBuffer:
             state_dim = (3,86,86)
             state_dim_str = "(3,86,86)"
             state_type_str = 'float32'
+            state_arr_dim = 90
+            state_arr_dim_str = "90"
+            state_arr_type_str = 'float32'
             action_dim = 1
             action_dim_str = '' if action_dim == () else str(action_dim)
             action_type_str = 'int64'
         else:
-            state_dim = environment.observation_space.shape[0]
+            state_dim = environment.observation_space.shape
             state_dim_str = '' if state_dim == () else str(state_dim)
             state_type_str = environment.observation_space.sample().dtype.name
             action_dim = environment.action_space.shape
             action_dim_str = '' if action_dim == () else str(action_dim)
             action_type_str = environment.action_space.sample().__class__.__name__
         
-         # type str for transition = 'state type, action type, reward type, state type'
-        transition_type_str = '{0}{1}, {2}{3}, float32, {0}{1}, bool'.format(state_dim_str, state_type_str,
+         # type str for transition = 'state img type, state arr type,action type, reward type, state img type, state arr type, done'
+        transition_type_str = '{0}{1}, {2}{3}, {4}{5}, float32, {0}{1}, {2}{3}, bool'.format(state_dim_str, state_type_str,
+                                                                             state_arr_dim_str, state_arr_type_str,
                                                                              action_dim_str, action_type_str)
         return transition_type_str
 

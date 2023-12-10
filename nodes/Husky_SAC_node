@@ -30,6 +30,8 @@ TRAINING_EVALUATION_RATIO = 0.3 #4
 RUNS = 1
 EPISODES_PER_RUN = 9000
 STEPS_PER_EPISODE = 900
+STEP_SIZE = 1 # seconds per step
+RUN_SPEED = 10 #speed gazebo is opperating
 run_evaluation_results=[]
 run_evaluation_steps=[]
 total_global=[]
@@ -71,31 +73,24 @@ if __name__ == '__main__':
             evaluation_episode = random.uniform(0, 1) <= TRAINING_EVALUATION_RATIO
             episode_reward = 0
             #state,_ = env.reset(seed=(universal_seed))
-            state = env.reset()
+            state_img, state_arr = env.reset()
             #print('reset')
 
             done = False
             i = 0
             episode_maxtime = 0.0
-            #time1 = time.time()
             while not done and i < STEPS_PER_EPISODE:
-                #episode_maxtime = max(time1-time.time(), episode_maxtime)
-                #global_maxtime = max(global_maxtime, episode_maxtime)
-                rospy.sleep(0.1)
-                #time1 = time.time()
+                rospy.sleep(STEP_SIZE/RUN_SPEED)
                 i+=1
-                action = agent.get_next_action(state, evaluation_episode=evaluation_episode)
-                next_state, reward, done = env.step(action)
+                action = agent.get_next_action(state_img, state_arr, evaluation_episode=evaluation_episode)
+                next_state_img, next_state_arr, reward, done = env.step(action)
                 get_action.data = [action, episode_reward, reward]
-                #print(state)
-                #print(action)
-                #print(action.dtype)
                 pub_get_action.publish(get_action)
                 if evaluation_episode:
                     evaluation_steps=evaluation_steps+1
                 if not evaluation_episode:
                     steps=steps+1
-                    g_loss,l_loss,error=agent.train_on_transition(state, action, next_state, reward, done)
+                    g_loss,l_loss,error=agent.train_on_transition(state_img, state_arr, action, next_state_img, next_state_arr, reward, done)
                     if type(g_loss) != int:
                         g_loss=g_loss.detach().numpy()
                         l_loss=l_loss.detach().numpy()
@@ -105,7 +100,8 @@ if __name__ == '__main__':
                     total_error.append(error)
                 # else:
                 episode_reward += reward
-                state = next_state
+                state_img  = next_state_img
+                state_arr = next_state_arr
 
             if i==STEPS_PER_EPISODE:
                 rospy.loginfo("Time out!!")

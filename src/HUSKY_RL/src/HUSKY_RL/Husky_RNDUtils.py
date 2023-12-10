@@ -10,6 +10,7 @@ import numpy as np
 import torch.nn as nn 
 from torch.optim.adam import Adam
 from src.HUSKY_RL.Husky_Networks import CustomNetwork
+from src.HUSKY_RL.Husky_Networks import DenseNet
 import itertools
 
 
@@ -122,9 +123,9 @@ class RNDTauSetter():
         
         
     def  _set_networks(self,inputdim,output_dim=2000):
-        self.target=CustomNetwork(None,True,inputdim,output_dim,"dense_net",self.activation_type)
-        self.predictor_g=CustomNetwork(None,True,inputdim,output_dim,"dense_net",self.activation_type)
-        self.predictor_l=CustomNetwork(None,True,inputdim,output_dim,"dense_net",self.activation_type)
+        self.target=DenseNet(inputdim,output_dim,self.activation_type)
+        self.predictor_g=DenseNet(inputdim,output_dim,self.activation_type)
+        self.predictor_l=DenseNet(inputdim,output_dim,self.activation_type)
         self.predictor_g.load_state_dict(self.predictor_l.state_dict())
         
         self.predictor_g_opt=Adam(self.predictor_g.parameters(), lr=self.lr)
@@ -158,18 +159,18 @@ class RNDTauSetter():
 
 
 
-    def update_rnd(self,states_global,states_local):
+    def update_rnd(self,encoding_global, encoding_local):
         with torch.no_grad():
-            noisy_targets_global=self.target(states_global)  
-            noisy_targets_local=self.target(states_local) 
+            noisy_targets_global=self.target(encoding_global)  
+            noisy_targets_local=self.target(encoding_local) 
         
-        global_prediction=self.predictor_g(states_global)
-        local_prediction=self.predictor_l(states_local)
+        global_prediction=self.predictor_g(encoding_global)
+        local_prediction=self.predictor_l(encoding_local)
         
 
         global_loss=self.loss(noisy_targets_global,global_prediction)#**(1/2)
         local_loss=self.loss(noisy_targets_local,local_prediction)
-        
+
         global_loss=self.apply_mask(global_loss)
         local_loss=self.apply_mask(local_loss)
         # print(local_loss.detach().numpy())

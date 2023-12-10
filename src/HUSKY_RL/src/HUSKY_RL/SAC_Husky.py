@@ -39,26 +39,21 @@ class SACAgent:
         self.action_dim = self.environment.action_size
         if(self.action_dim == None):
             self.action_dim = 7 #5
-        self.critic_local = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"conv_net",None)
+        self.critic_local = CustomNetwork(3,500,90,100,7,None)
 
-        self.critic_local2 = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"conv_net",None)
+        self.critic_local2 = CustomNetwork(3,500,90,100,7,None)
 
         self.critic_optimiser = torch.optim.Adam(self.critic_local.parameters(), lr=self.LEARNING_RATE)
         self.critic_optimiser2 = torch.optim.Adam(self.critic_local2.parameters(), lr=self.LEARNING_RATE)
 
-        self.critic_target = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"conv_net",None)
+        self.critic_target = CustomNetwork(3,500,90,100,7,None)
 
-        self.critic_target2 =CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"conv_net",None)
+        self.critic_target2 = CustomNetwork(3,500,90,100,7,None)
 
 
         self.soft_update_target_networks(tau=1.)
 
-        self.actor_local = CustomNetwork(None,True,self.state_dim,
-                                          self.action_dim,"conv_net",'softmax')
+        self.actor_local = CustomNetwork(3,500,90,100,7,'softmax')
         
         self.actor_optimiser = torch.optim.Adam(self.actor_local.parameters(), lr=self.LEARNING_RATE)
 
@@ -72,36 +67,37 @@ class SACAgent:
         self.alpha_optimiser = torch.optim.Adam([self.log_alpha], lr=self.LEARNING_RATE)
     
     def _set_rnd(self):
-        output=self.critic_local.feat_foward(torch.rand((64,self.state_dim,86,86)))
+        output=self.critic_local.feat_foward(torch.rand((64,self.state_dim,86,86)),
+                                             torch.rand((64,90))) #why 64
         input_dim=2*(output.shape[1])
         loss_type="MAPE"
         input_dim2=2*(self.state_dim)
         self.tausetter=RNDTauSetter(input_dim,loss_type,initial_tau=.003)
         self.tausetter2=RNDTauSetter(input_dim2,loss_type,initial_tau=.003)
-    def get_next_action(self, state, evaluation_episode=False):
+    def get_next_action(self, state_img, state_arr, evaluation_episode=False):
         if evaluation_episode:
-            discrete_action = self.get_action_deterministically(state)
+            discrete_action = self.get_action_deterministically(state_img, state_arr)
         else:
-            discrete_action = self.get_action_nondeterministically(state)
+            discrete_action = self.get_action_nondeterministically(state_img, state_arr)
         return discrete_action
 
-    def get_action_nondeterministically(self, state):
-        action_probabilities = self.get_action_probabilities(state)
+    def get_action_nondeterministically(self, state_img, state_arr):
+        action_probabilities = self.get_action_probabilities(state_img, state_arr)
         discrete_action = np.random.choice(range(self.action_dim), p=action_probabilities)
         return discrete_action
 
-    def get_action_deterministically(self, state):
-        action_probabilities = self.get_action_probabilities(state)
+    def get_action_deterministically(self, state_img, state_arr):
+        action_probabilities = self.get_action_probabilities(state_img, state_arr)
         discrete_action = np.argmax(action_probabilities)
         return discrete_action
     
-    def train_on_transition(self, state, discrete_action, next_state, reward, done):
+    def train_on_transition(self, state_img, state_arr, discrete_action, next_state_img, next_state_arr, reward, done):
         #print("state_shape", state.shape())
         #print("discrete_action", discrete_action)
         #print("next_state.shape", next_state.shape())
         #print("reward", reward)
         #print("done", done)
-        transition = (state, discrete_action, reward, next_state, done)
+        transition = (state_img, state_arr, discrete_action, reward, next_state_img, next_state_arr, done)
         g_loss,l_loss,error=self.train_networks(transition)
         return g_loss,l_loss,error
     
@@ -124,31 +120,41 @@ class SACAgent:
             local_minibatch_separated = list(map(list, zip(*local_minibatch)))
 
             # unravel transitions to get states, actions, rewards and next states
-            states_tensor = torch.tensor(np.array(minibatch_separated[0]))
-            actions_tensor = torch.tensor(np.array(minibatch_separated[1]))
-            rewards_tensor = torch.tensor(np.array(minibatch_separated[2])).float()
-            next_states_tensor = torch.tensor(np.array(minibatch_separated[3]))
-            done_tensor = torch.tensor(np.array(minibatch_separated[4]))
+            states_img_tensor = torch.tensor(np.array(minibatch_separated[0]))
+            states_arr_tensor = torch.tensor(np.array(minibatch_separated[1]))
+            actions_tensor = torch.tensor(np.array(minibatch_separated[2]))
+            rewards_tensor = torch.tensor(np.array(minibatch_separated[3])).float()
+            next_states_img_tensor = torch.tensor(np.array(minibatch_separated[4]))
+            next_states_arr_tensor = torch.tensor(np.array(minibatch_separated[5]))
+            done_tensor = torch.tensor(np.array(minibatch_separated[6]))
             
-            states_tensor_local = torch.tensor(np.array(local_minibatch_separated[0]))
-            next_states_tensor_local = torch.tensor(np.array(local_minibatch_separated[3]))
+            states_tensor_img_local = torch.tensor(np.array(local_minibatch_separated[0]))
+            states_tensor_arr_local = torch.tensor(np.array(local_minibatch_separated[1]))
+            next_states_tensor_img_local = torch.tensor(np.array(local_minibatch_separated[4]))
+            next_states_tensor_arr_local = torch.tensor(np.array(local_minibatch_separated[5]))
             
             
             critic_loss, critic2_loss = \
-                self.critic_loss(states_tensor, actions_tensor, rewards_tensor, next_states_tensor, done_tensor)
+                self.critic_loss(states_img_tensor,states_arr_tensor, actions_tensor, rewards_tensor, next_states_img_tensor, next_states_arr_tensor, done_tensor)
             
             if self.rnd_flag:
                 
                 if self.rnd_state_flag:
-                    global_loss,local_loss,error,global_state_loss,local_state_loss,error_state=self.rnd_loss_states(states_tensor,next_states_tensor,
-                                                          states_tensor_local,next_states_tensor_local)
+                    global_loss,local_loss,error,global_state_loss,local_state_loss,error_state=self.rnd_loss_states(states_img_tensor,states_arr_tensor,
+                                                          next_states_img_tensor, next_states_arr_tensor,
+                                                          states_tensor_img_local, states_tensor_arr_local,
+                                                          next_states_tensor_img_local, next_states_tensor_arr_local)
                 elif self.rnd_state_only:
-                    global_loss,local_loss,error=self.rnd_state_loss(states_tensor,next_states_tensor,
-                                                          states_tensor_local,next_states_tensor_local)
+                    global_loss,local_loss,error=self.rnd_state_loss(states_img_tensor,states_arr_tensor,
+                                                          next_states_img_tensor, next_states_arr_tensor,
+                                                          states_tensor_img_local, states_tensor_arr_local,
+                                                          next_states_tensor_img_local, next_states_tensor_arr_local)
                 
                 else:
-                    global_loss,local_loss,error=self.rnd_loss(states_tensor,next_states_tensor,
-                                                          states_tensor_local,next_states_tensor_local)
+                    global_loss,local_loss,error=self.rnd_loss(states_img_tensor,states_arr_tensor,
+                                                          next_states_img_tensor, next_states_arr_tensor,
+                                                          states_tensor_img_local, states_tensor_arr_local,
+                                                          next_states_tensor_img_local, next_states_tensor_arr_local)
                 
 
             
@@ -157,7 +163,7 @@ class SACAgent:
             self.critic_optimiser.step()
             self.critic_optimiser2.step()
 
-            actor_loss, log_action_probabilities = self.actor_loss(states_tensor)
+            actor_loss, log_action_probabilities = self.actor_loss(states_img_tensor,states_arr_tensor)
 
             actor_loss.backward()
             self.actor_optimiser.step()
@@ -175,11 +181,11 @@ class SACAgent:
             return global_loss,local_loss,error
         return 0,0,0
 
-    def critic_loss(self, states_tensor, actions_tensor, rewards_tensor, next_states_tensor, done_tensor):
+    def critic_loss(self, states_img_tensor, states_arr_tensor, actions_tensor, rewards_tensor, next_states_img_tensor, next_states_arr_tensor, done_tensor):
         with torch.no_grad():
-            action_probabilities, log_action_probabilities = self.get_action_info(next_states_tensor)
-            next_q_values_target = self.critic_target.forward(next_states_tensor)
-            next_q_values_target2 = self.critic_target2.forward(next_states_tensor)
+            action_probabilities, log_action_probabilities = self.get_action_info(next_states_img_tensor, next_states_arr_tensor)
+            next_q_values_target = self.critic_target.forward(next_states_img_tensor, next_states_arr_tensor)
+            next_q_values_target2 = self.critic_target2.forward(next_states_img_tensor, next_states_arr_tensor)
             soft_state_values = (action_probabilities * (
                     torch.min(next_q_values_target, next_q_values_target2) - self.alpha * log_action_probabilities
             )).sum(dim=1)
@@ -189,8 +195,8 @@ class SACAgent:
         #print("action_tensor ", actions_tensor)
         #print("actions_tensor.dtype ", actions_tensor.dtype)
 
-        soft_q_values = self.critic_local(states_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
-        soft_q_values2 = self.critic_local2(states_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
+        soft_q_values = self.critic_local(states_img_tensor,states_arr_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
+        soft_q_values2 = self.critic_local2(states_img_tensor,states_arr_tensor).gather(1, actions_tensor.unsqueeze(-1)).squeeze(-1)
         critic_square_error = torch.nn.MSELoss(reduction="none")(soft_q_values, next_q_values)
         critic2_square_error = torch.nn.MSELoss(reduction="none")(soft_q_values2, next_q_values)
         weight_update = [min(l1.item(), l2.item()) for l1, l2 in zip(critic_square_error, critic2_square_error)]
@@ -199,22 +205,24 @@ class SACAgent:
         critic2_loss = critic2_square_error.mean()
         return critic_loss, critic2_loss
     
-    def rnd_state_loss(self, states_tensor,states_local_tensor,next_states_tensor,next_states_tensor_local):
+    def rnd_state_loss(self, states_img_tensor,states_arr_tensor,states_img_local_tensor,states_arr_local_tensor,
+                       next_states_img_tensor, next_states_arr_tensor,next_states_img_tensor_local,next_states_arr_tensor_local):
         with torch.no_grad():
     
-            encoding_global=torch.cat((states_tensor, next_states_tensor), 1)
-            encoding_local=torch.cat((states_local_tensor, next_states_tensor_local), 1)
+            encoding_global=torch.cat((states_img_tensor,states_arr_tensor, next_states_img_tensor, next_states_arr_tensor), 1)
+            encoding_local=torch.cat((states_img_local_tensor,states_arr_local_tensor, next_states_img_tensor_local,next_states_arr_tensor_local), 1)
             
         global_loss,local_loss,error=self.tausetter2.update_rnd(encoding_global,encoding_local)
         return global_loss,local_loss,error
     
-    def rnd_loss(self, states_tensor,states_local_tensor,next_states_tensor,next_states_tensor_local):
+    def rnd_loss(self, states_img_tensor,states_arr_tensor,states_img_local_tensor,states_arr_local_tensor,
+                 next_states_img_tensor, next_states_arr_tensor,next_states_img_tensor_local,next_states_arr_tensor_local):
         with torch.no_grad():
-            encoding_global= self.critic_local.feat_foward(states_tensor)
-            encoding_local = self.critic_local.feat_foward(states_local_tensor)
+            encoding_global= self.critic_local.feat_foward(states_img_tensor,states_arr_tensor)
+            encoding_local = self.critic_local.feat_foward(states_img_local_tensor,states_arr_local_tensor)
 
-            encoding_global_next = self.critic_local.feat_foward(next_states_tensor_local)
-            encoding_local_next = self.critic_local.feat_foward(next_states_tensor_local)
+            encoding_global_next = self.critic_local.feat_foward(next_states_img_tensor,next_states_arr_tensor)
+            encoding_local_next = self.critic_local.feat_foward(next_states_img_tensor_local,next_states_arr_tensor_local)
             
             encoding_global=torch.cat((encoding_global, encoding_global_next), 1)
             encoding_local=torch.cat((encoding_local, encoding_local_next), 1)
@@ -223,13 +231,14 @@ class SACAgent:
         
         return global_loss,local_loss,error
     
-    def rnd_only_state_loss(self, states_tensor,states_local_tensor,next_states_tensor,next_states_tensor_local):
+    def rnd_only_state_loss(self, states_img_tensor,states_arr_tensor,
+                            states_img_local_tensor,states_arr_local_tensor,next_states_img_tensor, next_states_arr_tensor,next_states_img_tensor_local,next_states_arr_tensor_local):
         with torch.no_grad():
-            encoding_global= self.critic_local.feat_foward(states_tensor)
-            encoding_local = self.critic_local.feat_foward(states_local_tensor)
+            encoding_global= self.critic_local.feat_foward(states_img_tensor,states_arr_tensor)
+            encoding_local = self.critic_local.feat_foward(states_img_local_tensor,states_arr_local_tensor)
 
-            encoding_global_next = self.critic_local.feat_foward(next_states_tensor_local)
-            encoding_local_next = self.critic_local.feat_foward(next_states_tensor_local)
+            encoding_global_next = self.critic_local.feat_foward(next_states_img_tensor_local,next_states_arr_tensor_local)
+            encoding_local_next = self.critic_local.feat_foward(next_states_img_tensor_local,next_states_arr_tensor_local)
             
             encoding_global=torch.cat((encoding_global, encoding_global_next), 1)
             encoding_local=torch.cat((encoding_local, encoding_local_next), 1)
@@ -239,19 +248,20 @@ class SACAgent:
         return global_loss,local_loss,error
         
 
-    def rnd_loss_states(self, states_tensor,states_local_tensor,next_states_tensor,next_states_tensor_local):
+    def rnd_loss_states(self, states_img_tensor,states_arr_tensor,states_img_local_tensor,states_arr_local_tensor,
+                        next_states_img_tensor, next_states_arr_tensor,next_states_img_tensor_local,next_states_arr_tensor_local):
         with torch.no_grad():
-            encoding_global= self.critic_local.feat_foward(states_tensor)
-            encoding_local = self.critic_local.feat_foward(states_local_tensor)
+            encoding_global= self.critic_local.feat_foward(states_img_tensor,states_arr_tensor)
+            encoding_local = self.critic_local.feat_foward(states_img_local_tensor,states_arr_local_tensor)
 
-            encoding_global_next = self.critic_local.feat_foward(next_states_tensor_local)
-            encoding_local_next = self.critic_local.feat_foward(next_states_tensor_local)
+            encoding_global_next = self.critic_local.feat_foward(next_states_img_tensor_local,next_states_arr_tensor_local)
+            encoding_local_next = self.critic_local.feat_foward(next_states_img_tensor_local,next_states_arr_tensor_local)
             
             encoding_global=torch.cat((encoding_global, encoding_global_next), 1)
             encoding_local=torch.cat((encoding_local, encoding_local_next), 1)
             
-            encoding_global_states=torch.cat((states_tensor, next_states_tensor), 1)
-            encoding_local_states=torch.cat((states_local_tensor, next_states_tensor_local), 1)
+            encoding_global_states=torch.cat((states_img_tensor,states_arr_tensor, states_img_local_tensor,states_arr_local_tensor), 1)
+            encoding_local_states=torch.cat((states_img_local_tensor,states_arr_local_tensor, next_states_img_tensor_local,next_states_arr_tensor_local), 1)
             
         
         global_state_loss,local_state_loss,error_state=self.tausetter2.update_rnd(encoding_global_states, encoding_local_states)
@@ -259,10 +269,10 @@ class SACAgent:
         
         return global_loss,local_loss,error,global_state_loss,local_state_loss,error_state
     
-    def actor_loss(self, states_tensor):
-        action_probabilities, log_action_probabilities = self.get_action_info(states_tensor)
-        q_values_local = self.critic_local(states_tensor)
-        q_values_local2 = self.critic_local2(states_tensor)
+    def actor_loss(self, states_img_tensor,states_arr_tensor):
+        action_probabilities, log_action_probabilities = self.get_action_info(states_img_tensor,states_arr_tensor)
+        q_values_local = self.critic_local(states_img_tensor,states_arr_tensor)
+        q_values_local2 = self.critic_local2(states_img_tensor,states_arr_tensor)
         inside_term = self.alpha * log_action_probabilities - torch.min(q_values_local, q_values_local2)
         policy_loss = (action_probabilities * inside_term).sum(dim=1).mean()
         return policy_loss, log_action_probabilities
@@ -271,16 +281,17 @@ class SACAgent:
         alpha_loss = -(self.log_alpha * (log_action_probabilities + self.target_entropy).detach()).mean()
         return alpha_loss
 
-    def get_action_info(self, states_tensor):
-        action_probabilities = self.actor_local.forward(states_tensor)
+    def get_action_info(self, states_img_tensor,states_arr_tensor):
+        action_probabilities = self.actor_local.forward(states_img_tensor,states_arr_tensor)
         z = action_probabilities == 0.0
         z = z.float() * 1e-8
         log_action_probabilities = torch.log(action_probabilities + z)
         return action_probabilities, log_action_probabilities
 
-    def get_action_probabilities(self, state):
-        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-        action_probabilities = self.actor_local.forward(state_tensor)
+    def get_action_probabilities(self, state_img, state_arr):
+        states_img_tensor = torch.tensor(state_img, dtype=torch.float32).unsqueeze(0)
+        states_arr_tensor = torch.tensor(state_arr, dtype=torch.float32).unsqueeze(0)
+        action_probabilities = self.actor_local.forward(states_img_tensor,states_arr_tensor)
         return action_probabilities.squeeze(0).detach().numpy()
 
     def soft_update_target_networks(self, tau=SOFT_UPDATE_INTERPOLATION_FACTOR):
@@ -291,9 +302,9 @@ class SACAgent:
         for target_param, local_param in zip(target_model.parameters(), origin_model.parameters()):
             target_param.data.copy_(tau * local_param.data + (1 - tau) * target_param.data)
 
-    def predict_q_values(self, state):
-        q_values = self.critic_local(state)
-        q_values2 = self.critic_local2(state)
+    def predict_q_values(self, state_img, state_arr):
+        q_values = self.critic_local(state_img, state_arr)
+        q_values2 = self.critic_local2(state_img, state_arr)
         return torch.min(q_values, q_values2)
     
     def save_models(self,file_path):

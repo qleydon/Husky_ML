@@ -33,6 +33,8 @@ class Env():
         #self.observation_size = 480*640*3+2 #480x640 image * rgb + heading, distance
         self.observation_size = (3,86,86) 
         self.observation_space = np.random.random((480,640,3))
+        self.observation_arr_size = (4+86)
+        self.observation_arr_space = np.random.random(4+86)
         self.initGoal = True
         self.get_goalbox = False
         self.position = Pose()
@@ -108,7 +110,7 @@ class Env():
 
         self.heading = round(heading, 2)
 
-    def getState(self, scan, img):
+    def getState(self, scan, img, depth):
         scan_range = []
         scan_ds = []
         heading = self.heading
@@ -136,16 +138,6 @@ class Env():
             if val <= self.crash_table[i]+0.05:
                 crash_flag = True
 
-            '''if(i < 4 or i > 26):
-                if val < 0.6:
-                    crash_flag = True
-            else:
-                if val < 0.35:
-                    crash_flag = True'''
-
-
-        min_range_found = min(scan_ds) # for debugging
-        #if min_range > min_range_found > 0:
         if crash_flag:
             done = True
 
@@ -156,33 +148,26 @@ class Env():
         if self.current_distance < 1:
             self.get_goalbox = True
 
-        # aRather than taking 24 samples, the 360 are downsampled to 
-        # 24 by taking the min of the nearest 15 points
-
-        min_scan_range = np.zeros(24)
-        for i in range(14):
-            min_scan_range[i] = np.min(scan_range[i:i+15])
-
         #image is 480x640, down sample by 8 to 60x80
-
         bridge = CvBridge()
         #cv_image = bridge.imgmsg_to_cv2(img, desired_encoding="passthrough")
         cv_image = bridge.imgmsg_to_cv2(img, 'bgr8')
         # Convert sensor_msgs/Image to an OpenCV image
         cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
         
-        #np_img = np.asarray(cv_image)
-        #plt.imshow(np_img)
-        #plt.show()
-        # Downsample the OpenCV image form (480x640) to (86x86)
-        
         img = self.resize_n_reshape(cv_image)
-        
         self.observation_space = img
-        #print(self.observation_space)
-        return self.observation_space, done
 
-    def setReward(self, state, done, action):
+        depth_image = bridge.imgmsg_to_cv2(depth, desired_encoding="passthrough")
+        # resize
+        depth_image=np.asarray(cv2.resize(depth_image, (86,86)))
+        depth_image[np.isnan(depth_image)] = 8
+        depth_image = depth_image / 8
+
+        self.observation_arr_space = np.hstack((np.array((self.position.x, self.position.y, self.goal_x, self.goal_y)), depth_image[45, :]))
+        return done
+
+    def setReward(self, done, action):
         #reward = -2*(self.current_distance - self.previous_distance) # small reward for moving towards goal.
         reward = -0.02*(self.current_distance - self.previous_distance) # max 0.374 * 2
 
@@ -231,10 +216,16 @@ class Env():
             except:
                 pass
 
-        state, done = self.getState(Laser_data, Image_data)
-        reward = self.setReward(state, done, action)
+        Depth_data = None
+        while Depth_data is None:
+            try:
+                Depth_data = rospy.wait_for_message('/realsense/depth/image_rect_raw', Image, timeout=5)
+            except:
+                pass
+        done = self.getState(Laser_data, Image_data, Depth_data)
+        reward = self.setReward(done, action)
 
-        return state, reward, done
+        return self.observation_space, self.observation_arr_space, reward, done
 
     def reset(self):
         rospy.wait_for_service('gazebo/reset_simulation')
@@ -257,6 +248,12 @@ class Env():
             except:
                 pass
 
+        Depth_data = None
+        while Depth_data is None:
+            try:
+                Depth_data = rospy.wait_for_message('/realsense/depth/image_rect_raw', Image, timeout=5)
+            except:
+                pass
 
         if self.initGoal:
             self.goal_x, self.goal_y = self.respawn_goal.getPosition()
@@ -264,6 +261,5 @@ class Env():
 
         #self.initial_distance = 0 #reset 
         self.goal_distance = self.getGoalDistace()
-        state, done = self.getState(Laser_data, Image_data)
-
-        return np.asarray(state)
+        done = self.getState(Laser_data, Image_data, Depth_data)
+        return self.observation_space, self.observation_arr_space,
