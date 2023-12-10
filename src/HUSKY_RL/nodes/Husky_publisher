@@ -1,64 +1,22 @@
 #!/usr/bin/env python
 
 import rospy
+import time
 import numpy as np
+import cv2
 
 from geometry_msgs.msg import Twist, Point, Pose
 from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Empty
 
-from gazebo_msgs.msg import ModelState
-from gazebo_msgs.srv import GetModelState
-from gazebo_msgs.msg import ModelStates
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 
-def model_states_callback(msg):
-    # Find the index of 'husky' in the names list
-    try:
-        husky_index = msg.name.index('husky')
-    except ValueError:
-        rospy.logwarn("Could not find 'husky' in model_states")
-        return
-
-    # Extract the position information for 'husky'
-    husky_position = msg.pose[husky_index].position
-
-    # Print the position
-    print(f"Husky Position: X={husky_position.x}, Y={husky_position.y}, Z={husky_position.z}")
-
-def main():
-    rospy.init_node('husky_position_reader', anonymous=True)
-
-    # Subscribe to the /gazebo/model_states topic
-    rospy.Subscriber('/gazebo/model_states', ModelStates, model_states_callback)
-
-    # Spin to keep the script running
-    rospy.spin()
-
-if __name__ == '__main__':
-    main()
-
-
-
-
-'''def show_gazebo_models():
-    while(1):
-        name = "husky"
-        model_coords = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)
-        #print(model_coords)
-        resp_coordinates = model_coords(name, 'base_link')
-        position = resp_coordinates.pose
-
-        print(position.position.x)
-
-if __name__ == '__main__':
-    show_gazebo_models()'''
-
-
-
-'''
-def talker():
+'''def talker():
    pub_cmd_vel = rospy.Publisher('cmd_vel', Twist, queue_size=10)
    rate = rospy.Rate(10) # 10hz
    while not rospy.is_shutdown():
@@ -75,6 +33,112 @@ if __name__ == '__main__':
     try:
         talker()
     except rospy.ROSInterruptException:
-        pass
+        pass'''
+
+
+'''def listener():
+    while True:
+        rospy.init_node('listener', anonymous=True)
+        scan = None
+        scan_range = []
+        scan_ds = []
+        while scan is None:
+            try:
+                scan = rospy.wait_for_message('front/scan', LaserScan, timeout=5)
+            except:
+                pass
+
+        for i in range(len(scan.ranges)):
+                    if scan.ranges[i] == float('Inf'):
+                        scan_range.append(3.5)
+                    elif np.isnan(scan.ranges[i]):
+                        scan_range.append(0)
+                    else:
+                        scan_range.append(scan.ranges[i])
         
-'''
+        crash_flag = False
+        for i in range(36):
+            if i== 15 or i == 16 or i==17:
+                scan_ds.append(1) #safe number
+                continue # seeing camera
+            start_index = i * 20
+            end_index = start_index + 20
+            sample = scan_range[start_index:end_index]
+            val = sum(sample)/20
+            scan_ds.append(val)
+            if(i < 4 or i > 26):
+                if val < 0.6:
+                    crash_flag = True
+            else:
+                if val < 0.35:
+                    crash_flag = True
+        
+        print(scan_ds)
+        rospy.sleep(2)'''
+
+class DepthSubscriber:
+    def __init__(self):
+        rospy.init_node('depth_subscriber', anonymous=True)
+
+        # Set the callback function to handle incoming depth images
+        rospy.Subscriber('/realsense/depth/image_rect_raw', Image, self.depth_callback)
+
+        # Initialize CvBridge
+        self.bridge = CvBridge()
+    
+    def plot_3d(self, depth_image):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        x_vals = np.arange(0, depth_image.shape[1])
+        y_vals = np.arange(0, depth_image.shape[0])
+        x_vals, y_vals = np.meshgrid(x_vals, y_vals)
+        ax.plot_surface(x_vals, y_vals, depth_image, cmap='viridis')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Depth')
+        plt.title('3D Depth Image')
+        plt.show()
+        rospy.sleep(1)
+
+    def plot_40th_row(self, row_data):
+        if row_data.ndim == 1:
+            plt.plot(row_data)
+        else:
+            plt.plot(row_data.flatten())
+        plt.xlabel('Column')
+        plt.ylabel('Depth')
+        plt.title('Depth Values of the 40th Row')
+        plt.show()
+        rospy.sleep(1)
+
+    def depth_callback(self, depth_msg):
+        try:
+            # Convert the ROS depth image message to a NumPy array
+            depth_image = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
+
+            # resize
+            resized=np.asarray(cv2.resize(depth_image, (86,86)))
+            resized[np.isnan(resized)] = 8
+            resized = resized / 8
+            
+            # Plot Depth
+            #self.plot_3d(resized)
+            # Plot 40th row
+            self.plot_40th_row(resized[45, :])
+
+            # Print the NumPy array
+            print("Depth Array:\n", np.array(depth_image))
+
+            rospy.sleep(3)
+
+        except Exception as e:
+            rospy.logerr("Error processing depth image: %s", str(e))
+
+if __name__ == '__main__':
+    depth_subscriber = DepthSubscriber()
+
+    try:
+        rospy.spin()
+    except KeyboardInterrupt:
+        print("Shutting down")
+

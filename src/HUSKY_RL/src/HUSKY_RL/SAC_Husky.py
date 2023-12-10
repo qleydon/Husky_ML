@@ -40,21 +40,18 @@ class SACAgent:
         if(self.action_dim == None):
             self.action_dim = 7 #5
         self.critic_local = CustomNetwork(3,500,90,100,7,None)
-
         self.critic_local2 = CustomNetwork(3,500,90,100,7,None)
 
         self.critic_optimiser = torch.optim.Adam(self.critic_local.parameters(), lr=self.LEARNING_RATE)
         self.critic_optimiser2 = torch.optim.Adam(self.critic_local2.parameters(), lr=self.LEARNING_RATE)
 
         self.critic_target = CustomNetwork(3,500,90,100,7,None)
-
         self.critic_target2 = CustomNetwork(3,500,90,100,7,None)
 
 
         self.soft_update_target_networks(tau=1.)
 
         self.actor_local = CustomNetwork(3,500,90,100,7,'softmax')
-        
         self.actor_optimiser = torch.optim.Adam(self.actor_local.parameters(), lr=self.LEARNING_RATE)
 
         self.replay_buffer = ReplayBuffer(self.environment,atari=True)
@@ -65,6 +62,14 @@ class SACAgent:
         self.log_alpha = torch.tensor(np.log(self.ALPHA_INITIAL), requires_grad=True)
         self.alpha = self.log_alpha
         self.alpha_optimiser = torch.optim.Adam([self.log_alpha], lr=self.LEARNING_RATE)
+
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.critic_local.to(self.device)
+        self.critic_local2.to(self.device)
+        self.critic_target.to(self.device)
+        self.critic_target2.to(self.device)
+        self.actor_local.to(self.device)
+        
     
     def _set_rnd(self):
         output=self.critic_local.feat_foward(torch.rand((64,self.state_dim,86,86)),
@@ -120,18 +125,18 @@ class SACAgent:
             local_minibatch_separated = list(map(list, zip(*local_minibatch)))
 
             # unravel transitions to get states, actions, rewards and next states
-            states_img_tensor = torch.tensor(np.array(minibatch_separated[0]))
-            states_arr_tensor = torch.tensor(np.array(minibatch_separated[1]))
-            actions_tensor = torch.tensor(np.array(minibatch_separated[2]))
-            rewards_tensor = torch.tensor(np.array(minibatch_separated[3])).float()
-            next_states_img_tensor = torch.tensor(np.array(minibatch_separated[4]))
-            next_states_arr_tensor = torch.tensor(np.array(minibatch_separated[5]))
-            done_tensor = torch.tensor(np.array(minibatch_separated[6]))
+            states_img_tensor = torch.tensor(np.array(minibatch_separated[0])).to(self.device)
+            states_arr_tensor = torch.tensor(np.array(minibatch_separated[1])).to(self.device)
+            actions_tensor = torch.tensor(np.array(minibatch_separated[2])).to(self.device)
+            rewards_tensor = torch.tensor(np.array(minibatch_separated[3])).float().to(self.device)
+            next_states_img_tensor = torch.tensor(np.array(minibatch_separated[4])).to(self.device)
+            next_states_arr_tensor = torch.tensor(np.array(minibatch_separated[5])).to(self.device)
+            done_tensor = torch.tensor(np.array(minibatch_separated[6])).to(self.device)
             
-            states_tensor_img_local = torch.tensor(np.array(local_minibatch_separated[0]))
-            states_tensor_arr_local = torch.tensor(np.array(local_minibatch_separated[1]))
-            next_states_tensor_img_local = torch.tensor(np.array(local_minibatch_separated[4]))
-            next_states_tensor_arr_local = torch.tensor(np.array(local_minibatch_separated[5]))
+            states_tensor_img_local = torch.tensor(np.array(local_minibatch_separated[0])).to(self.device)
+            states_tensor_arr_local = torch.tensor(np.array(local_minibatch_separated[1])).to(self.device)
+            next_states_tensor_img_local = torch.tensor(np.array(local_minibatch_separated[4])).to(self.device)
+            next_states_tensor_arr_local = torch.tensor(np.array(local_minibatch_separated[5])).to(self.device)
             
             
             critic_loss, critic2_loss = \
@@ -289,10 +294,10 @@ class SACAgent:
         return action_probabilities, log_action_probabilities
 
     def get_action_probabilities(self, state_img, state_arr):
-        states_img_tensor = torch.tensor(state_img, dtype=torch.float32).unsqueeze(0)
-        states_arr_tensor = torch.tensor(state_arr, dtype=torch.float32).unsqueeze(0)
+        states_img_tensor = torch.tensor(state_img, dtype=torch.float32).unsqueeze(0).to(self.device)
+        states_arr_tensor = torch.tensor(state_arr, dtype=torch.float32).unsqueeze(0).to(self.device)
         action_probabilities = self.actor_local.forward(states_img_tensor,states_arr_tensor)
-        return action_probabilities.squeeze(0).detach().numpy()
+        return action_probabilities.squeeze(0).detach().cpu().numpy()
 
     def soft_update_target_networks(self, tau=SOFT_UPDATE_INTERPOLATION_FACTOR):
         self.soft_update(self.critic_target, self.critic_local, tau)

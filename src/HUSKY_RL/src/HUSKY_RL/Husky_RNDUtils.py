@@ -130,6 +130,11 @@ class RNDTauSetter():
         
         self.predictor_g_opt=Adam(self.predictor_g.parameters(), lr=self.lr)
         self.predictor_l_opt=Adam(self.predictor_l.parameters(), lr=self.lr)
+
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.target.to(self.device)
+        self.predictor_g.to(self.device)
+        self.predictor_l.to(self.device)
         
     def calculate_errors(self,states_global,states_local):
         with torch.no_grad():
@@ -152,9 +157,9 @@ class RNDTauSetter():
     def apply_mask(self,loss):
         size=loss.size()
         shape=np.asarray(size)
-        global_mask=torch.FloatTensor(*shape).uniform_(0, 1)
+        global_mask=torch.FloatTensor(*shape).uniform_(0, 1).to(self.device)
         global_mask=(global_mask < self.proportion_of_exp_used_for_predictor_update).type(torch.float32)
-        loss=torch.sum(loss*global_mask)/torch.max(torch.sum(global_mask),torch.ones(1))
+        loss=torch.sum(loss*global_mask)/torch.max(torch.sum(global_mask),torch.ones(1,device=self.device))
         return loss
 
 
@@ -200,7 +205,7 @@ class RNDTauSetter():
       """
       
       error=torch.abs(error)
-      error=error.detach().numpy()
+      error=error.detach().cpu().numpy()
       if self.max_error<error:
           self.max_error=error
       error=error/self.max_error
